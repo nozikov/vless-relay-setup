@@ -25,16 +25,16 @@ configure_3xui() {
     log_info "Configuring 3X-UI panel..."
 
     # Set panel port
-    x-ui setting -port "$panel_port"
+    /usr/local/x-ui/x-ui setting -port "$panel_port"
 
     # Set panel URL path
-    x-ui setting -webBasePath "/$panel_path/"
+    /usr/local/x-ui/x-ui setting -webBasePath "/$panel_path/"
 
     # Set admin credentials
-    x-ui setting -username "$admin_user" -password "$admin_pass"
+    /usr/local/x-ui/x-ui setting -username "$admin_user" -password "$admin_pass"
 
     # Enable self-signed TLS for panel
-    x-ui setting -enableTLS true
+    /usr/local/x-ui/x-ui setting -enableTLS true
 
     # Restart to apply
     x-ui restart
@@ -53,10 +53,10 @@ configure_3xui_subscription() {
 
     # 3X-UI has built-in subscription support
     # Configure via panel API or manual settings
-    x-ui setting -subEnable true
-    x-ui setting -subPort "$sub_port"
-    x-ui setting -subPath "/$sub_path/"
-    x-ui setting -subDomain "$domain"
+    /usr/local/x-ui/x-ui setting -subEnable true
+    /usr/local/x-ui/x-ui setting -subPort "$sub_port"
+    /usr/local/x-ui/x-ui setting -subPath "/$sub_path/"
+    /usr/local/x-ui/x-ui setting -subDomain "$domain"
 
     x-ui restart
 
