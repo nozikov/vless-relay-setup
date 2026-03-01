@@ -278,6 +278,47 @@ create_3xui_relay_inbound() {
     log_info "  Default client subId: $sub_id"
 }
 
+# 3X-UI normalizes inbound JSON on first restart after INSERT, stripping
+# fields it doesn't expect in server-side config (subId, realitySettings.settings).
+# This function re-adds them so subscriptions work correctly.
+# Must be called AFTER the x-ui restart that follows create_3xui_relay_inbound.
+patch_3xui_relay_inbound() {
+    local sub_id="$1"
+    local public_key="$2"
+
+    log_info "Patching relay inbound subscription fields..."
+
+    local current_settings current_stream
+
+    # Re-add subId to client settings
+    current_settings=$(sqlite3 "$XUI_DB" \
+        "SELECT settings FROM inbounds WHERE tag='inbound-443';")
+    local patched_settings
+    patched_settings=$(echo "$current_settings" | jq -c \
+        --arg sub_id "$sub_id" \
+        '.clients[0].subId = $sub_id | .clients[0].tgId = "" | .clients[0].reset = 0')
+    local s_settings="${patched_settings//\'/\'\'}"
+    sqlite3 "$XUI_DB" \
+        "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-443';"
+
+    # Re-add realitySettings.settings (publicKey + fingerprint for subscription URLs)
+    current_stream=$(sqlite3 "$XUI_DB" \
+        "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';")
+    local patched_stream
+    patched_stream=$(echo "$current_stream" | jq -c \
+        --arg public_key "$public_key" \
+        '.realitySettings.settings = {
+            publicKey: $public_key,
+            fingerprint: "chrome",
+            spiderX: ""
+        }')
+    local s_stream="${patched_stream//\'/\'\'}"
+    sqlite3 "$XUI_DB" \
+        "UPDATE inbounds SET stream_settings='${s_stream}' WHERE tag='inbound-443';"
+
+    log_ok "Relay inbound patched (subId + publicKey for subscriptions)"
+}
+
 configure_3xui_subscription() {
     local domain="$1"
     local sub_port="$2"

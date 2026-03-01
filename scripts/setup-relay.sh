@@ -76,10 +76,7 @@ main() {
     # Issue SSL cert for the domain (needed for panel and subscription HTTPS)
     issue_domain_cert "$domain" || true
 
-    # Configure 3X-UI xray to relay traffic through exit server
-    configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
-        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
-
+    # Create relay inbound FIRST, then restart so 3X-UI picks it up
     local default_sub_id
     default_sub_id=$(head -c 8 /dev/urandom | xxd -p)
     create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
@@ -87,7 +84,17 @@ main() {
         "$default_sub_id"
 
     x-ui restart
-    log_ok "3X-UI restarted with relay configuration"
+    log_ok "3X-UI restarted with relay inbound"
+
+    # IMPORTANT: Write xray template AFTER the last x-ui restart.
+    # 3X-UI strips api/stats/policy from xrayTemplateConfig on startup,
+    # which breaks the HandlerService gRPC (causes HTTP 500 on "Add Client").
+    # Writing post-restart avoids stripping. Do NOT add x-ui restart after this point.
+    configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
+        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
+
+    # Patch inbound fields that 3X-UI strips on first restart
+    patch_3xui_relay_inbound "$default_sub_id" "$REALITY_PUBLIC_KEY"
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
