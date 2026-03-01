@@ -139,17 +139,95 @@ IMPORTANT: Set DNS A-record for vpn.example.com → 91.x.x.x
 vpn.example.com → 91.x.x.x  (IP вашего relay-сервера)
 ```
 
-### Шаг 4. Добавление пользователей
+### Шаг 4. Настройка 3X-UI для управления пользователями
 
-1. Откройте 3X-UI панель relay-сервера в браузере: `https://91.x.x.x:41532/xK9m.../`
-2. Войдите с логином и паролем, которые указали при установке
-3. Перейдите в **Inbounds** → **Add Inbound**
-4. Создайте новое подключение VLESS + Reality
-5. Скопируйте subscription-ссылку для пользователя
+После установки на relay-сервере работают **два Xray**:
+- **Системный Xray** (порт 443) — VPN-туннель с одним пользователем
+- **3X-UI Xray** — отдельный процесс для управления через панель
+
+Чтобы управлять пользователями через панель, нужно перенести конфигурацию в 3X-UI:
+
+#### 4.1. Остановить системный Xray
+
+```bash
+ssh <relay-сервер>
+systemctl stop xray
+systemctl disable xray
+```
+
+#### 4.2. Настроить outbound в 3X-UI
+
+1. Откройте панель: `https://<relay-ip>:<port>/<path>/`
+2. Перейдите в **Xray Configs** → **Outbounds**
+3. Нажмите **Add Outbound** и вставьте JSON:
+
+```json
+{
+  "tag": "proxy-exit",
+  "protocol": "vless",
+  "settings": {
+    "vnext": [{
+      "address": "<exit-server-ip>",
+      "port": 443,
+      "users": [{
+        "id": "<exit-uuid>",
+        "encryption": "none"
+      }]
+    }]
+  },
+  "streamSettings": {
+    "network": "xhttp",
+    "xhttpSettings": {
+      "mode": "auto",
+      "path": "/<exit-xhttp-path>"
+    },
+    "security": "reality",
+    "realitySettings": {
+      "fingerprint": "chrome",
+      "serverName": "<exit-sni>",
+      "publicKey": "<exit-public-key>",
+      "shortId": "<exit-short-id>"
+    }
+  }
+}
+```
+
+Подставьте значения из `exit-server-info.txt`.
+
+4. Перейдите в **Xray Configs** → **Routing Rules**
+5. Добавьте правило: Inbound Tag = `*` → Outbound Tag = `proxy-exit`
+
+#### 4.3. Создать inbound для пользователей
+
+1. Перейдите в **Inbounds** → **Add Inbound**
+2. Заполните поля:
+
+| Поле | Значение |
+|------|----------|
+| Remark | Любое имя (например `vless-reality`) |
+| Protocol | `vless` |
+| Port | `443` |
+| Flow | `xtls-rprx-vision` |
+| Security | `reality` |
+| SNI (dest) | Сайт маскировки relay (например `www.microsoft.com`) |
+| Private Key | Приватный ключ relay-сервера (из установки) |
+| Short ID | Short ID relay-сервера (из установки) |
+
+> **Где взять ключи relay-сервера?** Они были сгенерированы при установке. Посмотреть можно в конфиге: `cat /usr/local/etc/xray/config.json`
+
+3. Нажмите **Create**
+
+#### 4.4. Добавить пользователей
+
+1. В списке Inbounds найдите созданный `vless-reality`
+2. Нажмите **+** (Add Client)
+3. Укажите email (имя пользователя) и лимиты трафика/срока
+4. Нажмите **Add Client**
+5. Нажмите на иконку QR-кода или ссылки — скопируйте для пользователя
 
 ### Шаг 5. Настройка клиента
 
-Передайте пользователю subscription-ссылку. Он вставляет её в приложение — и VPN работает.
+Передайте пользователю ссылку подключения или subscription-ссылку. Он вставляет её в приложение — и VPN работает.
 
 | Платформа | Приложение | Где скачать |
 |-----------|-----------|------------|
@@ -181,11 +259,11 @@ scripts/
 
 Через 3X-UI панель на relay-сервере: `https://<relay-ip>:<port>/<path>/`
 
-Панель позволяет:
-- Создавать и удалять пользователей
-- Устанавливать лимиты трафика и срок действия
-- Просматривать статистику подключений
-- Генерировать QR-коды и subscription-ссылки
+1. **Inbounds** → найдите `vless-reality` → нажмите **+** (Add Client)
+2. Укажите email (имя), лимиты трафика и срок действия
+3. Скопируйте ссылку подключения или QR-код для пользователя
+
+Для удаления: нажмите **×** рядом с клиентом.
 
 ### Перезапуск сервисов
 
