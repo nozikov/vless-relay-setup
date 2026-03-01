@@ -16,10 +16,10 @@ show_usage() {
 
 case "${1:-}" in
     relay)
-        source "$SCRIPT_DIR/setup-relay.sh"
+        exec "$SCRIPT_DIR/setup-relay.sh"
         ;;
     exit)
-        source "$SCRIPT_DIR/setup-exit.sh"
+        exec "$SCRIPT_DIR/setup-exit.sh"
         ;;
     *)
         show_usage
