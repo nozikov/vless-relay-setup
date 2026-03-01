@@ -213,6 +213,13 @@ XRAYEOF
     log_ok "XRAY relay config written"
 }
 
+disable_system_xray() {
+    log_info "Disabling system xray service (3X-UI manages its own xray)..."
+    systemctl stop xray 2>/dev/null || true
+    systemctl disable xray 2>/dev/null || true
+    log_ok "System xray disabled (binary kept for key generation)"
+}
+
 restart_xray() {
     systemctl restart xray
     systemctl enable xray

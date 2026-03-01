@@ -51,23 +51,18 @@ main() {
     update_system
     install_dependencies
 
-    # --- Step 4: Install and configure XRAY ---
+    # --- Step 4: Install XRAY (for key generation only) ---
     log_info "=== XRAY Setup ==="
     install_xray
     setup_reality  # Generate local Reality keys and dest
 
     local relay_uuid
     relay_uuid=$(xray uuid)
-    log_ok "Generated UUID for first user: $relay_uuid"
+    log_ok "Generated UUID for default user: $relay_uuid"
 
-    configure_xray_relay 443 "$relay_uuid" "$REALITY_PRIVATE_KEY" \
-        "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-        "$exit_ip" "$exit_port" "$exit_uuid" "$exit_pubkey" \
-        "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
+    disable_system_xray  # 3X-UI manages its own xray process
 
-    restart_xray
-
-    # --- Step 5: Install 3X-UI ---
+    # --- Step 5: Install and configure 3X-UI ---
     log_info "=== 3X-UI Setup ==="
     install_3xui
     configure_3xui "$panel_port" "$panel_path" "$admin_user" "$admin_pass"
@@ -77,6 +72,15 @@ main() {
     sub_port=$((panel_port + 1))
     sub_path=$(generate_random_path)
     configure_3xui_subscription "$domain" "$sub_port" "$sub_path"
+
+    # Configure 3X-UI xray to relay traffic through exit server
+    configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
+        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
+    create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
+        "$REALITY_PUBLIC_KEY" "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME"
+
+    x-ui restart
+    log_ok "3X-UI restarted with relay configuration"
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
@@ -102,7 +106,7 @@ main() {
     echo "Next steps:"
     echo "  1. Point your domain to this server's IP"
     echo "  2. Log into 3X-UI panel"
-    echo "  3. Create inbound with VLESS + Reality (panel will manage users)"
+    echo "  3. Add users: Inbounds → VLESS Reality Relay → + Add Client"
     echo "  4. Share subscription link with your users"
 }
 
