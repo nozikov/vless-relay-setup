@@ -72,14 +72,15 @@ main() {
     install_3xui
     configure_3xui "$panel_port" "$panel_path" "$admin_user" "$admin_pass"
 
-    # Configure subscription
-    local sub_path
+    # Configure subscription (separate port to avoid bind conflict with panel)
+    local sub_port sub_path
+    sub_port=$((panel_port + 1))
     sub_path=$(generate_random_path)
-    configure_3xui_subscription "$domain" "$panel_port" "$sub_path"
+    configure_3xui_subscription "$domain" "$sub_port" "$sub_path"
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
-    setup_security 22 "$panel_port" 443
+    setup_security 22:SSH 443:XRAY "$panel_port:3X-UI Panel" "$sub_port:Subscription"
 
     # --- Done ---
     local server_ip
@@ -94,7 +95,7 @@ main() {
     echo "  https://${server_ip}:${panel_port}/${panel_path}/"
     echo ""
     echo "Subscription URL:"
-    echo "  https://${domain}:${panel_port}/${sub_path}/"
+    echo "  https://${domain}:${sub_port}/${sub_path}/"
     echo ""
     echo "IMPORTANT: Set DNS A-record for ${domain} → ${server_ip}"
     echo ""

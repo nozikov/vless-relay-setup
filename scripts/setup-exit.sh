@@ -59,7 +59,7 @@ main() {
 
     # --- Step 5: Security ---
     log_info "=== Security Setup ==="
-    setup_security 22 "$panel_port" 443
+    setup_security 22:SSH 443:XRAY "$panel_port:3X-UI Panel"
 
     # --- Done ---
     local server_ip

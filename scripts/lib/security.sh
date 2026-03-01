@@ -24,25 +24,25 @@ setup_ssh_hardening() {
 }
 
 setup_ufw() {
-    local ssh_port="${1:-22}"
-    local panel_port="${2:-}"
-    local xray_port="${3:-443}"
-
+    # Usage: setup_ufw port:label [port:label ...]
+    # Example: setup_ufw 22:SSH 443:XRAY 48658:"3X-UI Panel"
     log_info "Configuring UFW firewall..."
 
     apt-get install -y -qq ufw > /dev/null 2>&1
 
     ufw default deny incoming
     ufw default allow outgoing
-    ufw allow "$ssh_port"/tcp comment "SSH"
-    ufw allow "$xray_port"/tcp comment "XRAY"
 
-    if [[ -n "$panel_port" ]]; then
-        ufw allow "$panel_port"/tcp comment "3X-UI Panel"
-    fi
+    local summary=""
+    for entry in "$@"; do
+        local port="${entry%%:*}"
+        local label="${entry#*:}"
+        ufw allow "$port"/tcp comment "$label"
+        summary="${summary:+$summary, }${label}=${port}"
+    done
 
     echo "y" | ufw enable
-    log_ok "UFW configured: SSH=$ssh_port, XRAY=$xray_port, Panel=$panel_port"
+    log_ok "UFW configured: $summary"
 }
 
 setup_fail2ban() {
@@ -68,11 +68,8 @@ JAIL
 }
 
 setup_security() {
-    local ssh_port="${1:-22}"
-    local panel_port="${2:-}"
-    local xray_port="${3:-443}"
-
+    # Usage: setup_security port:label [port:label ...]
     setup_ssh_hardening
     setup_fail2ban
-    setup_ufw "$ssh_port" "$panel_port" "$xray_port"
+    setup_ufw "$@"
 }
