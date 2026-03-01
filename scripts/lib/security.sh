@@ -6,6 +6,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 setup_ssh_hardening() {
     log_info "Hardening SSH..."
 
+    if [[ ! -s /root/.ssh/authorized_keys ]]; then
+        log_warn "No SSH authorized_keys found! Skipping SSH hardening to avoid lockout."
+        log_warn "Configure SSH keys first, then re-run this script."
+        return 0
+    fi
+
     local ssh_config="/etc/ssh/sshd_config"
 
     # Disable password authentication

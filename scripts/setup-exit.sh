@@ -62,6 +62,9 @@ main() {
     setup_security 22 "$panel_port" 443
 
     # --- Done ---
+    local server_ip
+    server_ip=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null) || server_ip="<not detected>"
+
     echo ""
     echo "==========================================="
     log_ok "EXIT server setup complete!"
@@ -69,7 +72,7 @@ main() {
     echo ""
     echo "Save these values for RELAY server setup:"
     echo "-------------------------------------------"
-    echo "  Exit server IP:       $(curl -s4 ifconfig.me)"
+    echo "  Exit server IP:       $server_ip"
     echo "  Exit server port:     443"
     echo "  Exit UUID:            $exit_uuid"
     echo "  Exit Reality pubkey:  $REALITY_PUBLIC_KEY"
@@ -79,12 +82,13 @@ main() {
     echo "-------------------------------------------"
     echo ""
     echo "3X-UI Panel:"
-    echo "  https://$(curl -s4 ifconfig.me):${panel_port}/${panel_path}/"
+    echo "  https://${server_ip}:${panel_port}/${panel_path}/"
     echo ""
 
     # Save connection info for relay setup
+    install -m 0600 /dev/null /root/exit-server-info.txt
     cat > /root/exit-server-info.txt << EOF
-EXIT_IP=$(curl -s4 ifconfig.me)
+EXIT_IP=$server_ip
 EXIT_PORT=443
 EXIT_UUID=$exit_uuid
 EXIT_PUBLIC_KEY=$REALITY_PUBLIC_KEY

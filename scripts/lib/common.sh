@@ -34,21 +34,23 @@ prompt_input() {
     local prompt="$1"
     local var_name="$2"
     local default="${3:-}"
+    local input
     if [[ -n "$default" ]]; then
         read -rp "$prompt [$default]: " input
-        eval "$var_name='${input:-$default}'"
+        printf -v "$var_name" '%s' "${input:-$default}"
     else
         read -rp "$prompt: " input
-        eval "$var_name='$input'"
+        printf -v "$var_name" '%s' "$input"
     fi
 }
 
 prompt_password() {
     local prompt="$1"
     local var_name="$2"
+    local input
     read -srp "$prompt: " input
     echo
-    eval "$var_name='$input'"
+    printf -v "$var_name" '%s' "$input"
 }
 
 generate_random_port() {
@@ -56,7 +58,7 @@ generate_random_port() {
 }
 
 generate_random_path() {
-    head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16
+    openssl rand -hex 8
 }
 
 install_dependencies() {

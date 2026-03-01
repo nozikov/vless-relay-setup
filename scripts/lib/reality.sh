@@ -10,9 +10,9 @@ generate_reality_keypair() {
     keys=$(xray x25519)
 
     export REALITY_PRIVATE_KEY
-    REALITY_PRIVATE_KEY=$(echo "$keys" | grep "PrivateKey" | awk '{print $2}')
+    REALITY_PRIVATE_KEY=$(echo "$keys" | grep -i "private" | awk '{print $NF}')
     export REALITY_PUBLIC_KEY
-    REALITY_PUBLIC_KEY=$(echo "$keys" | grep "Password" | awk '{print $2}')
+    REALITY_PUBLIC_KEY=$(echo "$keys" | grep -iE "public|password" | awk '{print $NF}')
 
     if [[ -z "$REALITY_PRIVATE_KEY" || -z "$REALITY_PUBLIC_KEY" ]]; then
         log_error "Failed to parse x25519 keys"
