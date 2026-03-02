@@ -1,17 +1,19 @@
 #!/bin/bash
 # Uninstall all VPN components from the server
 # Preserves SSH keys and sshd_config
-# Run: ./setup.sh uninstall [--force]
+# Run: ./setup.sh uninstall [--force] [--purge-certs]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 
 FORCE=false
+PURGE_CERTS=false
 
 parse_args() {
     for arg in "$@"; do
         case "$arg" in
             --force) FORCE=true ;;
+            --purge-certs) PURGE_CERTS=true ;;
         esac
     done
 }
@@ -27,7 +29,7 @@ confirm_uninstall() {
     echo "  - XRAY core"
     echo "  - fail2ban"
     echo "  - UFW firewall rules"
-    echo "  - SSL certificates (acme.sh)"
+    echo "  - SSL certificates (only with --purge-certs)"
     echo "  - sqlite3, socat"
     echo ""
     echo "  SSH keys and sshd_config will NOT be touched."
@@ -68,17 +70,19 @@ uninstall_xray() {
 }
 
 uninstall_acme() {
-    log_info "Removing acme.sh..."
-
     if [[ -f ~/.acme.sh/acme.sh ]]; then
-        ~/.acme.sh/acme.sh --uninstall 2>/dev/null || true
-        rm -rf ~/.acme.sh 2>/dev/null || true
-        log_ok "acme.sh removed"
+        if [[ "$PURGE_CERTS" == true ]]; then
+            log_info "Removing acme.sh and certificates..."
+            ~/.acme.sh/acme.sh --uninstall 2>/dev/null || true
+            rm -rf ~/.acme.sh 2>/dev/null || true
+            rm -rf /root/cert/ 2>/dev/null || true
+            log_ok "acme.sh and certificates removed"
+        else
+            log_info "acme.sh and certs preserved (use --purge-certs to remove)"
+        fi
     else
         log_info "acme.sh not found, skipping"
     fi
-
-    rm -rf /root/cert/ 2>/dev/null || true
 }
 
 uninstall_fail2ban() {

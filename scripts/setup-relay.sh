@@ -87,26 +87,26 @@ main() {
         log_info "No domain provided — skipping subscriptions and SSL cert"
     fi
 
-    # Create relay inbound FIRST, then restart so 3X-UI picks it up
+    # Create relay inbound and xray template (all DB writes)
     local default_sub_id
     default_sub_id=$(head -c 8 /dev/urandom | xxd -p)
     create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
         "$REALITY_PUBLIC_KEY" "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
         "$default_sub_id"
 
-    x-ui restart
-    log_ok "3X-UI restarted with relay inbound"
-
-    # Write xray template with relay routing (proxy-exit outbound + routing rules)
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
         "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
 
-    # Patch inbound fields that 3X-UI strips on first restart
+    # First restart: 3X-UI loads inbound + template, normalizes inbound JSON
+    x-ui restart
+    log_ok "3X-UI restarted with relay inbound and routing"
+
+    # Patch fields that 3X-UI strips on normalization (subId, publicKey for subscriptions)
     patch_3xui_relay_inbound "$default_sub_id" "$REALITY_PUBLIC_KEY"
 
-    # Restart so xray picks up the relay template with exit routing
+    # Final restart: xray picks up patched config
     x-ui restart
-    log_ok "3X-UI restarted with relay routing"
+    log_ok "3X-UI restarted with patched subscription fields"
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="

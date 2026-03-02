@@ -10,7 +10,8 @@ show_usage() {
     echo ""
     echo "  exit      — Setup foreign exit server (internet access point)"
     echo "  relay     — Setup Russian relay server (entry point for users)"
-    echo "  uninstall — Remove all VPN components (keeps SSH keys)"
+    echo "  uninstall — Remove all VPN components (keeps SSH keys and certs)"
+    echo "             Use --purge-certs to also remove SSL certificates"
     echo ""
     echo "Deploy EXIT server first, then RELAY server."
 }

@@ -336,8 +336,6 @@ configure_3xui_subscription() {
     xui_db_set "subPath" "/$sub_path/"
     xui_db_set "subDomain" "$domain"
 
-    x-ui restart
-
     log_ok "Subscription configured:"
     log_info "  URL: https://${domain}:${sub_port}/${sub_path}/"
 }
@@ -347,6 +345,27 @@ issue_domain_cert() {
 
     log_info "Issuing SSL certificate for ${domain}..."
 
+    # Check if valid cert already exists for this domain
+    local cert_dir="/root/cert/domain"
+    if [[ -f "$cert_dir/fullchain.pem" && -f "$cert_dir/privkey.pem" ]]; then
+        local cert_domain
+        cert_domain=$(openssl x509 -in "$cert_dir/fullchain.pem" -noout -subject -nameopt multiline 2>/dev/null \
+            | sed -n 's/\s*commonName\s*=\s*//p')
+        local cert_expiry
+        cert_expiry=$(openssl x509 -in "$cert_dir/fullchain.pem" -noout -enddate 2>/dev/null \
+            | cut -d= -f2)
+        if [[ "$cert_domain" == "$domain" ]] && \
+           openssl x509 -in "$cert_dir/fullchain.pem" -noout -checkend 2592000 2>/dev/null; then
+            log_ok "Valid SSL certificate found for ${domain} (expires: $cert_expiry)"
+            # Still configure 3X-UI to use the existing cert
+            xui_db_set "webCertFile" "$cert_dir/fullchain.pem"
+            xui_db_set "webKeyFile" "$cert_dir/privkey.pem"
+            xui_db_set "subCertFile" "$cert_dir/fullchain.pem"
+            xui_db_set "subKeyFile" "$cert_dir/privkey.pem"
+            return 0
+        fi
+    fi
+
     # Verify DNS resolves to this server before attempting ACME
     local server_ip domain_ip
     server_ip=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null) || server_ip=""
@@ -355,14 +374,14 @@ issue_domain_cert() {
     if [[ -z "$domain_ip" ]]; then
         log_warn "DNS for ${domain} does not resolve yet"
         log_warn "Set A-record: ${domain} → ${server_ip}"
-        log_warn "Then issue cert manually: ~/.acme.sh/acme.sh --issue -d $domain --standalone --force"
+        log_warn "Then issue cert manually: ~/.acme.sh/acme.sh --issue -d $domain --standalone"
         return 1
     fi
 
     if [[ -n "$server_ip" && "$domain_ip" != "$server_ip" ]]; then
         log_warn "DNS for ${domain} resolves to ${domain_ip}, but this server is ${server_ip}"
         log_warn "Fix the A-record, then issue cert manually:"
-        log_warn "  ~/.acme.sh/acme.sh --issue -d $domain --standalone --force"
+        log_warn "  ~/.acme.sh/acme.sh --issue -d $domain --standalone"
         return 1
     fi
 
@@ -376,8 +395,7 @@ issue_domain_cert() {
     # Port 80 must be open for HTTP-01 validation
     ufw allow 80/tcp comment "ACME validation" > /dev/null 2>&1 || true
 
-    if "$acme" --issue -d "$domain" --standalone --force; then
-        local cert_dir="/root/cert/domain"
+    if "$acme" --issue -d "$domain" --standalone; then
         mkdir -p "$cert_dir"
         "$acme" --install-cert -d "$domain" \
             --fullchain-file "$cert_dir/fullchain.pem" \
@@ -393,7 +411,7 @@ issue_domain_cert() {
     else
         log_warn "Failed to issue SSL cert for ${domain}"
         log_warn "Ensure DNS A-record points to this server, then run:"
-        log_warn "  $acme --issue -d $domain --standalone --force"
+        log_warn "  $acme --issue -d $domain --standalone"
         return 1
     fi
 

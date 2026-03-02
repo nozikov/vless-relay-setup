@@ -236,10 +236,16 @@ x-ui update
 
 ### Удаление / переустановка
 
-Для полной очистки сервера (удаляет 3X-UI, XRAY, fail2ban, UFW, сертификаты):
+Для полной очистки сервера (удаляет 3X-UI, XRAY, fail2ban, UFW):
 
 ```bash
 sudo ./scripts/setup.sh uninstall
+```
+
+SSL-сертификаты и acme.sh **сохраняются** по умолчанию (для повторных установок без rate-limit). Для полного удаления вместе с сертификатами:
+
+```bash
+sudo ./scripts/setup.sh uninstall --purge-certs
 ```
 
 SSH-ключи и `sshd_config` **не удаляются** — доступ к серверу сохраняется.
