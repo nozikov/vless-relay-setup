@@ -10,7 +10,7 @@ install_xray() {
 
     if command -v xray &> /dev/null; then
         local version
-        version=$(xray version | head -1)
+        version=$(xray version 2>/dev/null | head -1 || true)
         log_ok "XRAY installed: $version"
     else
         log_error "XRAY installation failed"
