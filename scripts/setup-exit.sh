@@ -70,26 +70,6 @@ main() {
     local server_ip
     server_ip=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null) || server_ip="<not detected>"
 
-    echo ""
-    echo "==========================================="
-    log_ok "EXIT server setup complete!"
-    echo "==========================================="
-    echo ""
-    echo "Save these values for RELAY server setup:"
-    echo "-------------------------------------------"
-    echo "  Exit server IP:       $server_ip"
-    echo "  Exit server port:     443"
-    echo "  Exit UUID:            $exit_uuid"
-    echo "  Exit Reality pubkey:  $REALITY_PUBLIC_KEY"
-    echo "  Exit Reality shortId: $REALITY_SHORT_ID"
-    echo "  Exit Reality SNI:     $REALITY_SERVER_NAME"
-    echo "  Exit XHTTP path:     $xhttp_path"
-    echo "-------------------------------------------"
-    echo ""
-    echo "3X-UI Panel:"
-    echo "  https://${server_ip}:${panel_port}/${panel_path}/"
-    echo ""
-
     # Save connection info for relay setup
     install -m 0600 /dev/null /root/exit-server-info.txt
     cat > /root/exit-server-info.txt << EOF
@@ -102,7 +82,35 @@ EXIT_SERVER_NAME=$REALITY_SERVER_NAME
 EXIT_XHTTP_PATH=$xhttp_path
 EOF
 
-    log_ok "Connection info saved to /root/exit-server-info.txt"
+    echo ""
+    echo "==========================================="
+    log_ok "EXIT server setup complete!"
+    echo "==========================================="
+    echo ""
+    echo "  Server:    ${server_ip}"
+    echo "  Protocol:  VLESS + Reality + XHTTP"
+    echo "  Port:      443"
+    echo "  SNI:       ${REALITY_SERVER_NAME}"
+    echo ""
+    echo "  Panel:     https://${server_ip}:${panel_port}/${panel_path}/"
+    echo "  User:      ${admin_user}"
+    echo ""
+    echo "-------------------------------------------"
+    echo "  Values for RELAY server setup:"
+    echo "-------------------------------------------"
+    echo "  Exit server IP:       $server_ip"
+    echo "  Exit server port:     443"
+    echo "  Exit UUID:            $exit_uuid"
+    echo "  Exit Reality pubkey:  $REALITY_PUBLIC_KEY"
+    echo "  Exit Reality shortId: $REALITY_SHORT_ID"
+    echo "  Exit Reality SNI:     $REALITY_SERVER_NAME"
+    echo "  Exit XHTTP path:     $xhttp_path"
+    echo "-------------------------------------------"
+    echo ""
+    echo "  Saved to /root/exit-server-info.txt"
+    echo ""
+    echo "  Next: run ./scripts/setup.sh relay on the relay server"
+    echo ""
 }
 
 main
