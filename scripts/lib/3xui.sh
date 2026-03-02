@@ -53,6 +53,11 @@ configure_3xui() {
 
     log_info "Configuring 3X-UI panel..."
 
+    # Stop x-ui BEFORE changing settings.
+    # The running process overwrites the DB on shutdown with its in-memory state,
+    # so any changes made while it's running get lost on restart.
+    x-ui stop
+
     # Set panel port
     "$XUI_BIN" setting -port "$panel_port"
 
@@ -62,10 +67,8 @@ configure_3xui() {
     # Set admin credentials
     "$XUI_BIN" setting -username "$admin_user" -password "$admin_pass"
 
-    # TLS is already configured by the 3X-UI installer (acme.sh)
-
-    # Restart to apply
-    x-ui restart
+    # Start with new settings
+    x-ui start
 
     log_ok "3X-UI configured:"
     log_info "  URL: https://<server-ip>:${panel_port}/${panel_path}/"
