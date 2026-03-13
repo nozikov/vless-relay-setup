@@ -36,6 +36,13 @@ configure_xray_exit() {
         "access": "/var/log/xray/access.log",
         "error": "/var/log/xray/error.log"
     },
+    "dns": {
+        "servers": [
+            "94.140.14.14",
+            "94.140.15.15",
+            "1.1.1.1"
+        ]
+    },
     "inbounds": [
         {
             "tag": "vless-reality-in",
