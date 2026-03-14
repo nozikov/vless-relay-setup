@@ -1,0 +1,79 @@
+<svg width="100%" viewBox="0 0 680 148" xmlns="http://www.w3.org/2000/svg">
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.h{font-size:12.5px;font-weight:600}
+.s{font-size:10.5px}
+.lb{font-size:10px}
+
+.s1 rect{fill:#E6F1FB;stroke:#185FA5;stroke-width:.75}
+.s1 .h{fill:#042C53} .s1 .s{fill:#185FA5}
+.s2 rect{fill:#EEEDFE;stroke:#534AB7;stroke-width:.75}
+.s2 .h{fill:#26215C} .s2 .s{fill:#534AB7}
+.s3 rect{fill:#FAEEDA;stroke:#854F0B;stroke-width:.75;stroke-dasharray:4 2}
+.s3 .h{fill:#412402} .s3 .s{fill:#854F0B}
+.s4 rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:.75}
+.s4 .h{fill:#04342C} .s4 .s{fill:#0F6E56}
+.s5 rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:.75}
+.s5 .h{fill:#173404} .s5 .s{fill:#3B6D11}
+
+.arr{stroke:#57606a;stroke-width:1.5;fill:none}
+.arr-skip{stroke:#854F0B;stroke-width:1;fill:none;stroke-dasharray:4 3}
+.lb{fill:#57606a} .nt{fill:#8b949e;font-size:10px}
+
+@media(prefers-color-scheme:dark){
+.s1 rect{fill:#0C447C;stroke:#85B7EB} .s1 .h{fill:#E6F1FB} .s1 .s{fill:#B5D4F4}
+.s2 rect{fill:#3C3489;stroke:#AFA9EC} .s2 .h{fill:#EEEDFE} .s2 .s{fill:#CECBF6}
+.s3 rect{fill:#633806;stroke:#EF9F27} .s3 .h{fill:#FAEEDA} .s3 .s{fill:#FAC775}
+.s4 rect{fill:#085041;stroke:#5DCAA5} .s4 .h{fill:#E1F5EE} .s4 .s{fill:#9FE1CB}
+.s5 rect{fill:#27500A;stroke:#97C459} .s5 .h{fill:#EAF3DE} .s5 .s{fill:#C0DD97}
+.arr{stroke:#8b949e} .arr-skip{stroke:#EF9F27} .lb{fill:#8b949e} .nt{fill:#656d76}
+}
+</style>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr"/></marker>
+<marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr-skip"/></marker>
+</defs>
+
+<g class="s1">
+<rect x="16" y="44" width="110" height="52" rx="8"/>
+<text class="h" x="71" y="64" text-anchor="middle" dominant-baseline="central">1. Exit-сервер</text>
+<text class="s" x="71" y="80" text-anchor="middle" dominant-baseline="central">XRAY + 3X-UI</text>
+</g>
+
+<line x1="128" y1="70" x2="146" y2="70" class="arr" marker-end="url(#a)"/>
+
+<g class="s2">
+<rect x="148" y="44" width="116" height="52" rx="8"/>
+<text class="h" x="206" y="64" text-anchor="middle" dominant-baseline="central">2. Relay-сервер</text>
+<text class="s" x="206" y="80" text-anchor="middle" dominant-baseline="central">3X-UI + маршрут</text>
+</g>
+
+<line x1="266" y1="70" x2="284" y2="70" class="arr" marker-end="url(#a)"/>
+
+<g class="s3">
+<rect x="286" y="44" width="106" height="52" rx="8"/>
+<text class="h" x="339" y="64" text-anchor="middle" dominant-baseline="central">3. DNS</text>
+<text class="s" x="339" y="80" text-anchor="middle" dominant-baseline="central">опционально</text>
+</g>
+
+<line x1="394" y1="70" x2="412" y2="70" class="arr" marker-end="url(#a)"/>
+
+<path d="M264 44 C280 14,400 14,414 44" class="arr-skip" marker-end="url(#as)"/>
+<text class="nt" x="339" y="18" text-anchor="middle">без домена</text>
+
+<g class="s4">
+<rect x="414" y="44" width="122" height="52" rx="8"/>
+<text class="h" x="475" y="64" text-anchor="middle" dominant-baseline="central">4. Пользователи</text>
+<text class="s" x="475" y="80" text-anchor="middle" dominant-baseline="central">добавить в панели</text>
+</g>
+
+<line x1="538" y1="70" x2="556" y2="70" class="arr" marker-end="url(#a)"/>
+
+<g class="s5">
+<rect x="558" y="44" width="108" height="52" rx="8"/>
+<text class="h" x="612" y="64" text-anchor="middle" dominant-baseline="central">5. Клиент</text>
+<text class="s" x="612" y="80" text-anchor="middle" dominant-baseline="central">VPN-приложение</text>
+</g>
+
+<text class="nt" x="340" y="128" text-anchor="middle">Начинайте с exit → данные подключения передаются на relay → пользователи получают подписку</text>
+</svg>

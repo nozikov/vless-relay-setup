@@ -1,0 +1,66 @@
+<svg width="100%" viewBox="0 0 680 160" xmlns="http://www.w3.org/2000/svg">
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.h{font-size:14px;font-weight:600}
+.s{font-size:11.5px}
+.lb{font-size:10.5px;text-anchor:middle}
+
+.c1 rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:.75}
+.c1 .h{fill:#04342C} .c1 .s{fill:#0F6E56}
+.c2 rect{fill:#EEEDFE;stroke:#534AB7;stroke-width:.75}
+.c2 .h{fill:#26215C} .c2 .s{fill:#534AB7}
+.c3 rect{fill:#E6F1FB;stroke:#185FA5;stroke-width:.75}
+.c3 .h{fill:#042C53} .c3 .s{fill:#185FA5}
+.c4 rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:.75}
+.c4 .h{fill:#2C2C2A}
+.arr{stroke:#57606a;stroke-width:1.5;fill:none}
+.lb{fill:#57606a}
+.nt{fill:#8b949e;font-size:11px;text-anchor:middle}
+
+@media(prefers-color-scheme:dark){
+.c1 rect{fill:#085041;stroke:#5DCAA5} .c1 .h{fill:#E1F5EE} .c1 .s{fill:#9FE1CB}
+.c2 rect{fill:#3C3489;stroke:#AFA9EC} .c2 .h{fill:#EEEDFE} .c2 .s{fill:#CECBF6}
+.c3 rect{fill:#0C447C;stroke:#85B7EB} .c3 .h{fill:#E6F1FB} .c3 .s{fill:#B5D4F4}
+.c4 rect{fill:#444441;stroke:#B4B2A9} .c4 .h{fill:#F1EFE8}
+.arr{stroke:#8b949e} .lb{fill:#8b949e} .nt{fill:#656d76}
+}
+</style>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr"/></marker>
+</defs>
+
+<text class="lb" x="160" y="34">VLESS + Reality</text>
+<text class="lb" x="160" y="46">TCP :443</text>
+<text class="lb" x="340" y="34">VLESS + Reality</text>
+<text class="lb" x="340" y="46">XHTTP :443</text>
+<text class="lb" x="527" y="40">HTTP / TLS</text>
+
+<g class="c1">
+<rect x="14" y="56" width="118" height="52" rx="8"/>
+<text class="h" x="73" y="76" text-anchor="middle" dominant-baseline="central">Клиент</text>
+<text class="s" x="73" y="94" text-anchor="middle" dominant-baseline="central">Телефон / ПК</text>
+</g>
+
+<g class="c2">
+<rect x="188" y="56" width="124" height="52" rx="8"/>
+<text class="h" x="250" y="76" text-anchor="middle" dominant-baseline="central">Relay</text>
+<text class="s" x="250" y="94" text-anchor="middle" dominant-baseline="central">Россия</text>
+</g>
+
+<g class="c3">
+<rect x="368" y="56" width="132" height="52" rx="8"/>
+<text class="h" x="434" y="76" text-anchor="middle" dominant-baseline="central">Exit</text>
+<text class="s" x="434" y="94" text-anchor="middle" dominant-baseline="central">Нидерланды</text>
+</g>
+
+<g class="c4">
+<rect x="556" y="60" width="110" height="44" rx="8"/>
+<text class="h" x="611" y="84" text-anchor="middle" dominant-baseline="central">Интернет</text>
+</g>
+
+<line x1="134" y1="82" x2="186" y2="82" class="arr" marker-end="url(#a)"/>
+<line x1="314" y1="82" x2="366" y2="82" class="arr" marker-end="url(#a)"/>
+<line x1="502" y1="82" x2="554" y2="82" class="arr" marker-end="url(#a)"/>
+
+<text class="nt" x="340" y="140">DPI видит обычный HTTPS к microsoft.com — VPN-трафик неотличим от легитимного</text>
+</svg>
