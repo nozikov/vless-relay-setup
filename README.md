@@ -202,9 +202,11 @@ vpn.example.com → 91.x.x.x  (IP вашего relay-сервера)
 
 ```
 scripts/
-├── setup.sh           # Точка входа: ./setup.sh [exit|relay|uninstall]
+├── setup.sh           # Точка входа: ./setup.sh [exit|relay|update-exit|update-relay|uninstall]
 ├── setup-exit.sh      # Настройка exit-сервера
 ├── setup-relay.sh     # Настройка relay-сервера
+├── update-exit.sh     # Обновление exit-сервера без переустановки
+├── update-relay.sh    # Обновление relay-сервера без переустановки
 ├── uninstall.sh       # Удаление всех VPN-компонентов
 └── lib/
     ├── common.sh      # Общие функции (логирование, ввод, валидация)
@@ -250,14 +252,27 @@ x-ui log
 tail -f /var/log/xray/access.log
 ```
 
-### Обновление компонентов
+### Обновление конфигурации
+
+Если вы изменили скрипты (например, обновили шаблон конфига) и хотите применить изменения на работающих серверах — не нужно переустанавливать. Достаточно подтянуть свежий код и запустить update:
 
 ```bash
-# XRAY (exit-сервер)
-bash -c "$(curl -L https://github.com/XTLS/Xray-install/raw/main/install-release.sh)" @ install
+cd ~/vless-relay-setup && git pull
 
-# 3X-UI (relay-сервер)
-x-ui update
+# Exit-сервер — обновить конфиг XRAY, security, apt upgrade
+sudo ./scripts/setup.sh update-exit
+
+# Relay-сервер — обновить xray-шаблон в 3X-UI, security, apt upgrade
+sudo ./scripts/setup.sh update-relay
+```
+
+Ключи, UUID, клиенты, подписки и статистика трафика **сохраняются** — обновляется только шаблон конфигурации из кода.
+
+Для обновления бинарников (XRAY, 3X-UI) добавьте флаг `--upgrade`:
+
+```bash
+sudo ./scripts/setup.sh update-exit --upgrade
+sudo ./scripts/setup.sh update-relay --upgrade
 ```
 
 ### Удаление
@@ -327,5 +342,6 @@ cat /root/exit-server-info.txt
 ```bash
 # Проверить наличие api в шаблоне
 sqlite3 /etc/x-ui/x-ui.db "SELECT value FROM settings WHERE key='xrayTemplateConfig';" | jq '.api'
-# Если null — нужно переустановить relay или вручную добавить api/stats/policy в шаблон
+# Если null — запустите update для восстановления шаблона:
+# sudo ./scripts/setup.sh update-relay
 ```
