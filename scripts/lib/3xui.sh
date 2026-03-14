@@ -84,11 +84,9 @@ configure_3xui_relay_template() {
     local exit_sni="$6"
     local exit_xhttp_path="$7"
 
-    log_info "Writing xray template config to 3X-UI database..."
+    local api_port="${8:-$(shuf -i 10000-60000 -n1)}"
 
-    # Pick a random port for the API tunnel (3X-UI gRPC ↔ xray)
-    local api_port
-    api_port=$(shuf -i 10000-60000 -n1)
+    log_info "Writing xray template config to 3X-UI database..."
 
     local template
     template=$(jq -n -c \
