@@ -82,7 +82,10 @@ configure_xray_exit() {
     "outbounds": [
         {
             "tag": "direct",
-            "protocol": "freedom"
+            "protocol": "freedom",
+            "settings": {
+                "domainStrategy": "UseIP"
+            }
         },
         {
             "tag": "block",
