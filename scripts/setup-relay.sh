@@ -94,6 +94,7 @@ main() {
           else
               log_info "Will auto-select best global domain for Reality SNI"
           fi
+    fi
 
     # --- Step 3: System setup ---
     log_info "=== System Setup ==="
