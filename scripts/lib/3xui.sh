@@ -280,7 +280,8 @@ create_3xui_relay_inbound() {
 
     sniffing=$(jq -n -c '{
         enabled: true,
-        destOverride: ["http","tls","quic"]
+        destOverride: ["http","tls","quic"],
+        routeOnly: true
     }')
 
     # Escape single quotes for SQLite
