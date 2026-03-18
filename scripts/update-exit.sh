@@ -109,12 +109,12 @@ main() {
     fi
 
     # --- Step 6: Security ---
-    log_info "=== Security ==="
-    local security_args=("22:SSH" "443:XRAY")
+    log_info "=== Updating UFW ==="
+    local security_args=("443:XRAY")
     if [[ -n "$panel_port" ]]; then
         security_args+=("$panel_port:3X-UI Panel")
     fi
-    setup_security "${security_args[@]}"
+    allow_ports "${security_args[@]}"
 
     # --- Step 7: Update exit-server-info.txt ---
     local server_ip

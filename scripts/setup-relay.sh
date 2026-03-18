@@ -119,12 +119,12 @@ main() {
     log_ok "3X-UI restarted with patched subscription fields"
 
     # --- Step 6: Security ---
-    log_info "=== Security Setup ==="
-    local ufw_args=("22:SSH" "443:XRAY" "$panel_port:3X-UI Panel")
+    log_info "=== Updating UFW ==="
+    local ufw_args=("443:XRAY" "$panel_port:3X-UI Panel")
     if [[ -n "$sub_port" ]]; then
         ufw_args+=("$sub_port:Subscription")
     fi
-    setup_security "${ufw_args[@]}"
+    allow_ports "${ufw_args[@]}"
 
     # --- Step 7: Verify ---
     verify_relay_server "$panel_port" "$sub_port" "$exit_ip" "$exit_port"

@@ -133,12 +133,12 @@ main() {
     log_ok "3X-UI restarted with updated template"
 
     # --- Step 6: Security ---
-    log_info "=== Security ==="
-    local security_args=("22:SSH" "443:XRAY" "$panel_port:3X-UI Panel")
+    log_info "=== Updating UFW ==="
+    local security_args=("443:XRAY" "$panel_port:3X-UI Panel")
     if [[ -n "$sub_port" ]]; then
         security_args+=("$sub_port:Subscription")
     fi
-    setup_security "${security_args[@]}"
+    allow_ports "${security_args[@]}"
 
     # --- Step 7: Verify ---
     verify_relay_server "$panel_port" "${sub_port:-}" "$exit_ip" "$exit_port"

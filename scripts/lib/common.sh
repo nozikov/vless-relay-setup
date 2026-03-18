@@ -34,6 +34,14 @@ check_os() {
     log_ok "OS: Ubuntu detected"
 }
 
+check_ufw() {
+    if command -v ufw &> /dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 prompt_input() {
     local prompt="$1"
     local var_name="$2"
