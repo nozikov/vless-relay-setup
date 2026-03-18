@@ -6,12 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 
 show_usage() {
-    echo "Usage: $0 [exit|relay|update-exit|update-relay|uninstall]"
+    echo "Usage: $0 [exit|relay|security|update-exit|update-relay|uninstall]"
     echo ""
     echo "  exit         — Setup foreign exit server (internet access point)"
     echo "                 Use --force to reinstall even if already configured"
     echo "  relay        — Setup Russian relay server (entry point for users)"
     echo "                 Use --force to reinstall even if already configured"
+    echo "  security     — Setup base security for server (ssh, fail2ban, ufw)"
+    echo ""
     echo "  update-exit  — Update exit server config from latest codebase"
     echo "                 Use --upgrade to also update XRAY and 3X-UI binaries"
     echo "  update-relay — Update relay server config from latest codebase"
@@ -28,6 +30,9 @@ case "${1:-}" in
         ;;
     exit)
         exec "$SCRIPT_DIR/setup-exit.sh" "${@:2}"
+        ;;
+    security)
+        exec "$SCRIPT_DIR/setup-security.sh" "${@:2}"
         ;;
     update-exit)
         exec "$SCRIPT_DIR/update-exit.sh" "${@:2}"
