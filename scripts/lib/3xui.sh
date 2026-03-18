@@ -154,6 +154,9 @@ configure_3xui_relay_template() {
                             serverName: $exit_sni,
                             publicKey: $exit_pubkey,
                             shortId: $exit_short_id
+                        },
+                        sockopt: {
+                            dialerProxy: "fragment"
                         }
                     }
                 },
@@ -164,6 +167,17 @@ configure_3xui_relay_template() {
                 {
                     tag: "block",
                     protocol: "blackhole"
+                },
+                {
+                    tag: "fragment",
+                    protocol: "freedom",
+                    settings: {
+                        fragment: {
+                            packets: "tlshello",
+                            length: "100-200",
+                            interval: "10-20"
+                        }
+                    }
                 }
             ],
             routing: {
