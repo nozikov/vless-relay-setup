@@ -69,8 +69,8 @@ main() {
     configure_3xui "$panel_port" "$panel_path" "$admin_user" "$admin_pass"
 
     # --- Step 5: Security ---
-    log_info "=== Security Setup ==="
-    setup_security 22:SSH 443:XRAY "$panel_port:3X-UI Panel"
+    log_info "=== Updating UFW ==="
+    allow_ports 443:XRAY "$panel_port:3X-UI Panel"
 
     # --- Step 6: Verify ---
     verify_exit_server "$panel_port"
