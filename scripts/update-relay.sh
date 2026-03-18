@@ -21,6 +21,11 @@ main() {
 
     check_root
 
+    # Backup 3X-UI database before any changes
+    local backup_path="${XUI_DB}.bak.$(date +%Y%m%d-%H%M%S)"
+    cp "$XUI_DB" "$backup_path"
+    log_ok "Database backup saved: $backup_path"
+
     # --- Step 1: Validate existing installation ---
     log_info "=== Checking existing installation ==="
 
@@ -97,10 +102,34 @@ main() {
     # Must stop before writing, then start to load fresh config.
     x-ui stop
 
+    # Patch inbound sniffing to add routeOnly (idempotent — jq sets the field)
+    local current_sniffing patched_sniffing
+    current_sniffing=$(sqlite3 "$XUI_DB" \
+        "SELECT sniffing FROM inbounds WHERE tag='inbound-443';") || true
+    if [[ -n "$current_sniffing" ]]; then
+        patched_sniffing=$(echo "$current_sniffing" | jq -c '.routeOnly = true')
+        local s_sniffing="${patched_sniffing//\'/\'\'}"
+        sqlite3 "$XUI_DB" \
+            "UPDATE inbounds SET sniffing='${s_sniffing}' WHERE tag='inbound-443';"
+        log_ok "Inbound sniffing patched (routeOnly: true)"
+    fi
+
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
         "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path" "$api_port"
 
     x-ui start
+
+    if ! systemctl is-active --quiet x-ui; then
+        log_warn "3X-UI failed to start, restoring backup..."
+        cp "$backup_path" "$XUI_DB"
+        x-ui start
+        if systemctl is-active --quiet x-ui; then
+            log_ok "Previous database restored, 3X-UI is running"
+        else
+            log_error "Rollback also failed. Check: x-ui log"
+        fi
+        exit 1
+    fi
     log_ok "3X-UI restarted with updated template"
 
     # --- Step 6: Security ---
