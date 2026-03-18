@@ -148,4 +148,6 @@ EOF
     echo ""
 }
 
-main "$@"
+LOG_FILE="/var/log/vpn-setup-$(basename "$0" .sh)-$(date +%Y%m%d-%H%M%S).log"
+main "$@" 2>&1 | tee "$LOG_FILE"
+exit "${PIPESTATUS[0]}"
