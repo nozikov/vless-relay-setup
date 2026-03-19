@@ -19,34 +19,12 @@ setup_ssh_hardening() {
     sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' "$ssh_config"
     sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' "$ssh_config"
 
-<<<<<<< HEAD
-    # Determine the service name (ssh or sshd)
-    local ssh_service=""
-    local units
-    units=$(systemctl list-unit-files 2>/dev/null)
-
-    if echo "$units" | grep -q ssh.service; then
-        ssh_service="ssh"
-    elif echo "$units" | grep -q sshd.service; then
-        ssh_service="sshd"
-    fi
-
-    if [[ -z "$ssh_service" ]]; then
-        log_error "SSH service not found"
-        return 1
-    fi
-
-    log_info "Found SSH service: $ssh_service"
-
-    systemctl restart "$ssh_service"
-=======
     # Service is named "ssh" on Debian/Ubuntu, "sshd" on RHEL/Fedora
     local sshd_service="sshd"
     if systemctl list-unit-files ssh.service &>/dev/null; then
         sshd_service="ssh"
     fi
     systemctl restart "$sshd_service"
->>>>>>> a5c4a5150890f258e78d515f5ed46dc51a269c93
     log_ok "SSH hardened: password auth disabled, key-only access"
 }
 
