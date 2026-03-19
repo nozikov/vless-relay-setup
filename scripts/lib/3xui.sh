@@ -48,21 +48,21 @@ xui_db_set() {
 build_domain_json_from_file() {
     local file="$1"
 
-    log_info "Loading domain list: $file"
+    log_info "Loading domain list: $file" >&2
 
     if [[ ! -f "$file" ]]; then
-        log_warn "File NOT FOUND: $file"
+        log_warn "File NOT FOUND: $file" >&2
         echo '[]'
         return 0
     fi
 
     local count
-    count=$(grep -vE '^\s*$|^\s*#' "$file" | wc -l)
+    count=$(grep -vE '^[[:space:]]*$|^[[:space:]]*#' "$file" | wc -l)
 
-    log_info "  Found $count entries"
+    log_info "  Found $count entries" >&2
 
     if [[ "$count" -eq 0 ]]; then
-        log_warn "  File is empty (after filtering)"
+        log_warn "  File is empty (after filtering)" >&2
     fi
 
     jq -Rsc '
@@ -116,8 +116,10 @@ configure_3xui_relay_template() {
 
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local direct_file="$script_dir/../../direct-domains.txt"
-    local proxy_file="$script_dir/../../proxy-domains.txt"
+    local repo_root
+    repo_root="$(cd "$script_dir/../.." && pwd)"
+    local direct_file="$repo_root/direct-domains.txt"
+    local proxy_file="$repo_root/proxy-domains.txt"
 
     log_info "Writing xray template config to 3X-UI database..."
 
