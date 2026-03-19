@@ -19,6 +19,8 @@ show_usage() {
     echo "  uninstall    — Remove all VPN components (keeps SSH keys and certs)"
     echo "                 Use --purge-certs to also remove SSL certificates"
     echo ""
+    echo "  All commands accept --skip-ssh to skip SSH hardening"
+    echo ""
     echo "Deploy EXIT server first, then RELAY server."
 }
 
