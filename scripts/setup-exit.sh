@@ -11,6 +11,14 @@ source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 
 main() {
+    local force=false skip_ssh=false
+    for arg in "$@"; do
+        case "$arg" in
+            --force) force=true ;;
+            --skip-ssh) skip_ssh=true ;;
+        esac
+    done
+
     echo "==========================================="
     echo "  VLESS Reality VPN — EXIT Server Setup"
     echo "  (Foreign server)"
@@ -22,7 +30,7 @@ main() {
     check_os
 
     # Guard: prevent accidental re-setup on a configured server
-    if [[ -f /usr/local/etc/xray/config.json ]] && [[ "${1:-}" != "--force" ]]; then
+    if [[ -f /usr/local/etc/xray/config.json ]] && [[ "$force" != true ]]; then
         log_warn "Existing XRAY configuration detected!"
         log_warn "Running setup again will regenerate ALL keys and break the relay connection."
         log_info "To update config from latest codebase: ./setup.sh update-exit"
@@ -71,7 +79,10 @@ main() {
 
     # --- Step 5: Security ---
     log_info "=== Security Setup ==="
-    setup_security 22:SSH 443:XRAY "$panel_port:3X-UI Panel"
+    local security_args=()
+    [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
+    security_args+=(22:SSH 443:XRAY "$panel_port:3X-UI Panel")
+    setup_security "${security_args[@]}"
 
     # --- Step 6: Verify ---
     verify_exit_server "$panel_port"

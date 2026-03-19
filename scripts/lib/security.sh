@@ -19,25 +19,12 @@ setup_ssh_hardening() {
     sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' "$ssh_config"
     sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' "$ssh_config"
 
-    # Determine the service name (ssh or sshd)
-    local ssh_service=""
-    local units
-    units=$(systemctl list-unit-files 2>/dev/null)
-
-    if echo "$units" | grep -q ssh.service; then
-        ssh_service="ssh"
-    elif echo "$units" | grep -q sshd.service; then
-        ssh_service="sshd"
+    # Service is named "ssh" on Debian/Ubuntu, "sshd" on RHEL/Fedora
+    local sshd_service="sshd"
+    if systemctl list-unit-files ssh.service &>/dev/null; then
+        sshd_service="ssh"
     fi
-
-    if [[ -z "$ssh_service" ]]; then
-        log_error "SSH service not found"
-        return 1
-    fi
-
-    log_info "Found SSH service: $ssh_service"
-
-    systemctl restart "$ssh_service"
+    systemctl restart "$sshd_service"
     log_ok "SSH hardened: password auth disabled, key-only access"
 }
 
@@ -86,8 +73,18 @@ JAIL
 }
 
 setup_security() {
-    # Usage: setup_security port:label [port:label ...]
-    setup_ssh_hardening
+    # Usage: setup_security [--skip-ssh] port:label [port:label ...]
+    local skip_ssh=false
+    if [[ "${1:-}" == "--skip-ssh" ]]; then
+        skip_ssh=true
+        shift
+    fi
+
+    if [[ "$skip_ssh" == true ]]; then
+        log_info "Skipping SSH hardening (--skip-ssh)"
+    else
+        setup_ssh_hardening
+    fi
     setup_fail2ban
     setup_ufw "$@"
 }

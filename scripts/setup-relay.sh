@@ -11,6 +11,14 @@ source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 
 main() {
+    local force=false skip_ssh=false
+    for arg in "$@"; do
+        case "$arg" in
+            --force) force=true ;;
+            --skip-ssh) skip_ssh=true ;;
+        esac
+    done
+
     echo "==========================================="
     echo "  VLESS Reality VPN — RELAY Server Setup"
     echo "  (Russia / Entry point)  v${PROJECT_VERSION}"
@@ -21,7 +29,7 @@ main() {
     check_os
 
     # Guard: prevent accidental re-setup on a configured server
-    if [[ -f /etc/x-ui/x-ui.db ]] && [[ "${1:-}" != "--force" ]]; then
+    if [[ -f /etc/x-ui/x-ui.db ]] && [[ "$force" != true ]]; then
         log_warn "Existing 3X-UI database detected!"
         log_warn "Running setup again will regenerate ALL keys and break client connections."
         log_info "To update config from latest codebase: ./setup.sh update-relay"
@@ -167,11 +175,13 @@ main() {
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
-    local ufw_args=("22:SSH" "443:XRAY" "$panel_port:3X-UI Panel")
+    local security_args=()
+    [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
+    security_args+=(22:SSH 443:XRAY "$panel_port:3X-UI Panel")
     if [[ -n "$sub_port" ]]; then
-        ufw_args+=("$sub_port:Subscription")
+        security_args+=("$sub_port:Subscription")
     fi
-    setup_security "${ufw_args[@]}"
+    setup_security "${security_args[@]}"
 
     # --- Step 7: Verify ---
     verify_relay_server "$panel_port" "$sub_port" "$exit_ip" "$exit_port"

@@ -9,10 +9,13 @@ source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 
 main() {
-    local upgrade=false
-    if [[ "${1:-}" == "--upgrade" ]]; then
-        upgrade=true
-    fi
+    local upgrade=false skip_ssh=false
+    for arg in "$@"; do
+        case "$arg" in
+            --upgrade) upgrade=true ;;
+            --skip-ssh) skip_ssh=true ;;
+        esac
+    done
 
     echo "==========================================="
     echo "  VLESS Reality VPN — RELAY Server Update  v${PROJECT_VERSION}"
@@ -134,7 +137,9 @@ main() {
 
     # --- Step 6: Security ---
     log_info "=== Security ==="
-    local security_args=("22:SSH" "443:XRAY" "$panel_port:3X-UI Panel")
+    local security_args=()
+    [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
+    security_args+=(22:SSH 443:XRAY "$panel_port:3X-UI Panel")
     if [[ -n "$sub_port" ]]; then
         security_args+=("$sub_port:Subscription")
     fi
