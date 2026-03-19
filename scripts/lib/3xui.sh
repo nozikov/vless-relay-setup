@@ -190,7 +190,7 @@ configure_3xui_relay_template() {
         --arg exit_short_id "$exit_short_id" \
         --arg exit_sni "$exit_sni" \
         --arg exit_xhttp_path "$exit_xhttp_path" \
-        --argjson api_port "$api_port"
+        --argjson api_port "$api_port" \
         --argjson routing_rules "$routing_rules" \
         '{
             log: {
