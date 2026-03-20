@@ -52,6 +52,17 @@ main() {
     prompt_input "Exit server Reality SNI" exit_sni
     prompt_input "Exit server XHTTP path" exit_xhttp_path
 
+    local cdn_domain="" cdn_ws_path=""
+    prompt_input "Exit CDN domain (Enter if not configured)" cdn_domain ""
+    if [[ -n "$cdn_domain" ]]; then
+        if ! validate_domain "$cdn_domain"; then
+            log_error "Invalid domain format: $cdn_domain"
+            exit 1
+        fi
+        prompt_input "Exit CDN WebSocket path" cdn_ws_path
+        validate_not_empty "$cdn_ws_path" "CDN WebSocket path" || exit 1
+    fi
+
     # Validate exit server inputs
     validate_ip "$exit_ip" || { log_error "Invalid IP address: $exit_ip"; exit 1; }
     validate_uuid "$exit_uuid" || { log_error "Invalid UUID format: $exit_uuid"; exit 1; }
@@ -206,12 +217,23 @@ main() {
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
         "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
 
+    local cdn_sub_id=""
+    if [[ -n "$cdn_domain" ]]; then
+        cdn_sub_id=$(head -c 8 /dev/urandom | xxd -p)
+        create_3xui_cdn_inbound "$exit_uuid" "$cdn_domain" "$cdn_ws_path" \
+            "$cdn_sub_id"
+    fi
+
     # First restart: 3X-UI loads inbound + template, normalizes inbound JSON
     x-ui restart
     log_ok "3X-UI restarted with relay inbound and routing"
 
     # Patch fields that 3X-UI strips on normalization (subId, publicKey for subscriptions)
     patch_3xui_relay_inbound "$default_sub_id" "$REALITY_PUBLIC_KEY"
+
+    if [[ -n "$cdn_domain" ]]; then
+        patch_3xui_cdn_inbound "$cdn_sub_id"
+    fi
 
     # Final restart: xray picks up patched config
     x-ui restart
@@ -289,6 +311,16 @@ main() {
             echo "  Subscriptions: not configured (no domain)"
             echo ""
         fi
+    fi
+    if [[ -n "$cdn_domain" ]]; then
+        echo "  CDN Fallback: ${cdn_domain}"
+        echo ""
+        local cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=ws&security=tls&path=%2F${cdn_ws_path}&host=${cdn_domain}&sni=${cdn_domain}#CDN%20Fallback"
+        echo "-------------------------------------------"
+        echo "  CDN VLESS link (for manual client setup):"
+        echo "-------------------------------------------"
+        echo "  $cdn_vless_link"
+        echo ""
     fi
     if [[ "$ssh_port" != "22" ]]; then
         echo "  SSH port:  ${ssh_port}"
