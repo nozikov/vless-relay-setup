@@ -27,6 +27,8 @@ configure_xray_exit() {
     local server_name="$6"
     local xhttp_path="$7"
     local xver="${8:-0}"
+    local cdn_ws_port="${9:-}"
+    local cdn_ws_path="${10:-}"
 
     log_info "Configuring XRAY as exit server..."
 
@@ -108,6 +110,37 @@ XRAYEOF
 
     mkdir -p /var/log/xray
     log_ok "XRAY exit config written"
+
+    if [[ -n "$cdn_ws_port" && -n "$cdn_ws_path" ]]; then
+        log_info "Adding CDN WebSocket inbound on 127.0.0.1:${cdn_ws_port}..."
+        local tmp_config
+        tmp_config=$(jq \
+            --argjson ws_port "$cdn_ws_port" \
+            --arg ws_path "$cdn_ws_path" \
+            '.inbounds += [{
+                tag: "vless-ws-in",
+                listen: "127.0.0.1",
+                port: $ws_port,
+                protocol: "vless",
+                settings: {
+                    clients: [{ id: .inbounds[0].settings.clients[0].id }],
+                    decryption: "none"
+                },
+                streamSettings: {
+                    network: "ws",
+                    wsSettings: {
+                        path: ("/"+$ws_path)
+                    }
+                },
+                sniffing: {
+                    enabled: true,
+                    destOverride: ["http","tls","quic"],
+                    routeOnly: true
+                }
+            }]' /usr/local/etc/xray/config.json)
+        echo "$tmp_config" > /usr/local/etc/xray/config.json
+        log_ok "CDN WebSocket inbound added (port: $cdn_ws_port)"
+    fi
 }
 
 disable_system_xray() {
