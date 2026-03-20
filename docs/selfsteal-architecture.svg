@@ -1,0 +1,90 @@
+<svg width="100%" viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg">
+<style>
+text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
+.h{font-size:14px;font-weight:600}
+.s{font-size:11.5px}
+.lb{font-size:10.5px;text-anchor:middle}
+
+.c1 rect{fill:#E1F5EE;stroke:#0F6E56;stroke-width:.75}
+.c1 .h{fill:#04342C} .c1 .s{fill:#0F6E56}
+.c2 rect{fill:#EEEDFE;stroke:#534AB7;stroke-width:.75}
+.c2 .h{fill:#26215C} .c2 .s{fill:#534AB7}
+.c3 rect{fill:#E6F1FB;stroke:#185FA5;stroke-width:.75}
+.c3 .h{fill:#042C53} .c3 .s{fill:#185FA5}
+.c4 rect{fill:#F1EFE8;stroke:#5F5E5A;stroke-width:.75}
+.c4 .h{fill:#2C2C2A}
+.c5 rect{fill:#FFF3E0;stroke:#E65100;stroke-width:.75}
+.c5 .h{fill:#4E1C00} .c5 .s{fill:#E65100}
+.arr{stroke:#57606a;stroke-width:1.5;fill:none}
+.arr-d{stroke:#57606a;stroke-width:1;fill:none;stroke-dasharray:4 3}
+.lb{fill:#57606a}
+.nt{fill:#8b949e;font-size:11px;text-anchor:middle}
+
+@media(prefers-color-scheme:dark){
+.c1 rect{fill:#085041;stroke:#5DCAA5} .c1 .h{fill:#E1F5EE} .c1 .s{fill:#9FE1CB}
+.c2 rect{fill:#3C3489;stroke:#AFA9EC} .c2 .h{fill:#EEEDFE} .c2 .s{fill:#CECBF6}
+.c3 rect{fill:#0C447C;stroke:#85B7EB} .c3 .h{fill:#E6F1FB} .c3 .s{fill:#B5D4F4}
+.c4 rect{fill:#444441;stroke:#B4B2A9} .c4 .h{fill:#F1EFE8}
+.c5 rect{fill:#5D3200;stroke:#FFB74D} .c5 .h{fill:#FFF3E0} .c5 .s{fill:#FFD699}
+.arr{stroke:#8b949e} .arr-d{stroke:#8b949e} .lb{fill:#8b949e} .nt{fill:#656d76}
+}
+</style>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr"/></marker>
+<marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr-d"/></marker>
+</defs>
+
+<!-- Row 1: main flow -->
+<text class="lb" x="160" y="26">VLESS Reality</text>
+<text class="lb" x="160" y="38">TCP :443</text>
+<text class="lb" x="340" y="20">VLESS Reality</text>
+<text class="lb" x="340" y="32">XHTTP + Fragment</text>
+<text class="lb" x="527" y="32">HTTP / TLS</text>
+
+<g class="c1">
+<rect x="14" y="48" width="118" height="52" rx="8"/>
+<text class="h" x="73" y="68" text-anchor="middle" dominant-baseline="central">Клиент</text>
+<text class="s" x="73" y="86" text-anchor="middle" dominant-baseline="central">Телефон / ПК</text>
+</g>
+
+<g class="c2">
+<rect x="218" y="48" width="118" height="52" rx="8"/>
+<text class="h" x="277" y="68" text-anchor="middle" dominant-baseline="central">Relay</text>
+<text class="s" x="277" y="86" text-anchor="middle" dominant-baseline="central">XRAY :443</text>
+</g>
+
+<g class="c3">
+<rect x="398" y="48" width="118" height="52" rx="8"/>
+<text class="h" x="457" y="68" text-anchor="middle" dominant-baseline="central">Exit</text>
+<text class="s" x="457" y="86" text-anchor="middle" dominant-baseline="central">XRAY :443</text>
+</g>
+
+<g class="c4">
+<rect x="556" y="52" width="110" height="44" rx="8"/>
+<text class="h" x="611" y="76" text-anchor="middle" dominant-baseline="central">Интернет</text>
+</g>
+
+<line x1="134" y1="74" x2="216" y2="74" class="arr" marker-end="url(#a)"/>
+<line x1="338" y1="74" x2="396" y2="74" class="arr" marker-end="url(#a)"/>
+<line x1="518" y1="74" x2="554" y2="74" class="arr" marker-end="url(#a)"/>
+
+<!-- Row 2: Caddy fallback -->
+<line x1="277" y1="102" x2="277" y2="126" class="arr-d" marker-end="url(#ad)"/>
+<line x1="457" y1="102" x2="457" y2="126" class="arr-d" marker-end="url(#ad)"/>
+<text class="lb" x="257" y="118">DPI</text>
+<text class="lb" x="437" y="118">DPI</text>
+
+<g class="c5">
+<rect x="198" y="128" width="158" height="44" rx="8"/>
+<text class="h" x="277" y="144" text-anchor="middle" dominant-baseline="central">Caddy</text>
+<text class="s" x="277" y="160" text-anchor="middle" dominant-baseline="central">example.com + панель</text>
+</g>
+
+<g class="c5">
+<rect x="378" y="128" width="158" height="44" rx="8"/>
+<text class="h" x="457" y="144" text-anchor="middle" dominant-baseline="central">Caddy</text>
+<text class="s" x="457" y="160" text-anchor="middle" dominant-baseline="central">exit.example.com</text>
+</g>
+
+<text class="nt" x="340" y="192">DPI видит настоящий сайт с валидным сертификатом — SNI совпадает с IP сервера</text>
+</svg>
