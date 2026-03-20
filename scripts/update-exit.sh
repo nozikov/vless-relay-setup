@@ -58,6 +58,14 @@ main() {
         is_selfsteal=true
         log_info "SelfSteal mode detected"
     fi
+
+    local is_cdn=false cdn_ws_port="" cdn_ws_path=""
+    cdn_ws_port=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .port' "$XRAY_CONFIG" 2>/dev/null) || true
+    cdn_ws_path=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .streamSettings.wsSettings.path' "$XRAY_CONFIG" 2>/dev/null | sed 's|^/||') || true
+    if [[ -n "$cdn_ws_port" && "$cdn_ws_port" != "null" ]]; then
+        is_cdn=true
+        log_info "CDN mode detected (WS port: $cdn_ws_port)"
+    fi
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
     xhttp_path=$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path' "$XRAY_CONFIG" | sed 's|^/||')
     listen_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG")
@@ -116,7 +124,8 @@ main() {
     log_ok "Backup saved: $backup_path"
 
     configure_xray_exit "$listen_port" "$uuid" "$private_key" \
-        "$short_id" "$dest" "$server_name" "$xhttp_path" "$xver"
+        "$short_id" "$dest" "$server_name" "$xhttp_path" "$xver" \
+        "$cdn_ws_port" "$cdn_ws_path"
 
     if ! restart_xray; then
         log_warn "Restoring previous config..."
@@ -158,6 +167,19 @@ EXIT_SHORT_ID=$short_id
 EXIT_SERVER_NAME=$server_name
 EXIT_XHTTP_PATH=$xhttp_path
 EOF
+
+    if [[ "$is_cdn" == true ]]; then
+        # Read CDN domain from Caddyfile
+        local cdn_domain=""
+        cdn_domain=$(grep -oP '(?<=https://)\S+(?= \{)' /etc/caddy/Caddyfile 2>/dev/null | grep -v "$server_name" | head -1) || true
+        if [[ -n "$cdn_domain" ]]; then
+            cat >> /root/exit-server-info.txt << EOF
+CDN_DOMAIN=$cdn_domain
+CDN_WS_PATH=$cdn_ws_path
+CDN_WS_PORT=$cdn_ws_port
+EOF
+        fi
+    fi
 
     # --- Step 8: Verify ---
     local selfsteal_domain=""
