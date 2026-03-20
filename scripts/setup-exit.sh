@@ -67,7 +67,7 @@ main() {
 
     configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
         "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-        "$xhttp_path"
+        "$xhttp_path" 0
 
     restart_xray
 

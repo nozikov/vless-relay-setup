@@ -26,6 +26,7 @@ configure_xray_exit() {
     local dest="$5"
     local server_name="$6"
     local xhttp_path="$7"
+    local xver="${8:-0}"
 
     log_info "Configuring XRAY as exit server..."
 
@@ -66,8 +67,8 @@ configure_xray_exit() {
                 "security": "reality",
                 "realitySettings": {
                     "show": false,
-                    "dest": "${dest}:443",
-                    "xver": 0,
+                    "dest": "${dest}",
+                    "xver": ${xver},
                     "serverNames": ["${server_name}"],
                     "privateKey": "${private_key}",
                     "shortIds": ["${short_id}"]

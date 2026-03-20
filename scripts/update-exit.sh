@@ -45,11 +45,12 @@ main() {
     # --- Step 2: Extract current values ---
     log_info "=== Reading current configuration ==="
 
-    local uuid private_key short_id dest server_name xhttp_path listen_port public_key
+    local uuid private_key short_id dest server_name xhttp_path listen_port public_key xver
     uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$XRAY_CONFIG")
     private_key=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' "$XRAY_CONFIG")
     short_id=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$XRAY_CONFIG")
-    dest=$(jq -r '.inbounds[0].streamSettings.realitySettings.dest' "$XRAY_CONFIG" | sed 's/:443$//')
+    dest=$(jq -r '.inbounds[0].streamSettings.realitySettings.dest' "$XRAY_CONFIG")
+    xver=$(jq -r '.inbounds[0].streamSettings.realitySettings.xver' "$XRAY_CONFIG")
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
     xhttp_path=$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path' "$XRAY_CONFIG" | sed 's|^/||')
     listen_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG")
@@ -101,7 +102,7 @@ main() {
     log_ok "Backup saved: $backup_path"
 
     configure_xray_exit "$listen_port" "$uuid" "$private_key" \
-        "$short_id" "$dest" "$server_name" "$xhttp_path"
+        "$short_id" "$dest" "$server_name" "$xhttp_path" "$xver"
 
     if ! restart_xray; then
         log_warn "Restoring previous config..."

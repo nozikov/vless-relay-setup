@@ -68,7 +68,7 @@ find_best_reality_dest() {
         log_warn "No sites responded. Defaulting to $best_site"
     fi
 
-    export REALITY_DEST="$best_site"
+    export REALITY_DEST="${best_site}:443"
     export REALITY_SERVER_NAME="$best_site"
     log_ok "Reality dest: $REALITY_DEST"
 }

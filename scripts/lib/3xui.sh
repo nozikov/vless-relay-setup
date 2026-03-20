@@ -216,6 +216,7 @@ create_3xui_relay_inbound() {
     local sub_id settings stream_settings sniffing
     sub_id="${7:-$(head -c 8 /dev/urandom | xxd -p)}"
     local exit_ip="${8:-}"
+    local xver="${9:-0}"
 
     # Build inbound name from geo IP (fallback: "Relay → Exit")
     local relay_city exit_city remark
@@ -253,13 +254,14 @@ create_3xui_relay_inbound() {
         --arg short_id "$short_id" \
         --arg dest "$dest" \
         --arg server_name "$server_name" \
+        --argjson xver "$xver" \
         '{
             network: "tcp",
             security: "reality",
             realitySettings: {
                 show: false,
-                dest: ($dest+":443"),
-                xver: 0,
+                dest: $dest,
+                xver: $xver,
                 serverNames: [$server_name],
                 privateKey: $private_key,
                 publicKey: $public_key,
