@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
+source "$SCRIPT_DIR/lib/caddy.sh"
 
 main() {
     local upgrade=false skip_ssh=false
@@ -85,6 +86,16 @@ main() {
         sub_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subPort';") || true
     fi
 
+    local is_selfsteal=false
+    local current_dest
+    current_dest=$(sqlite3 "$XUI_DB" \
+        "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" | \
+        jq -r '.realitySettings.dest') || true
+    if [[ "$current_dest" == *"caddy.sock"* ]]; then
+        is_selfsteal=true
+        log_info "SelfSteal mode detected"
+    fi
+
     # --- Step 3: System update ---
     log_info "=== System Update ==="
     update_system
@@ -96,6 +107,12 @@ main() {
         bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) < /tmp/xui-answers
         rm -f /tmp/xui-answers
         log_ok "3X-UI upgraded"
+
+        if [[ "$is_selfsteal" == true ]]; then
+            log_info "Upgrading Caddy..."
+            apt-get update -qq && apt-get install -y -qq caddy > /dev/null 2>&1
+            log_ok "Caddy upgraded"
+        fi
     fi
 
     # --- Step 5: Update xray template ---
@@ -140,7 +157,9 @@ main() {
     local security_args=()
     [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
     security_args+=(22:SSH 443:XRAY "$panel_port:3X-UI Panel")
-    if [[ -n "$sub_port" ]]; then
+    if [[ "$is_selfsteal" == true ]]; then
+        security_args+=(80:Caddy-ACME)
+    elif [[ -n "$sub_port" ]]; then
         security_args+=("$sub_port:Subscription")
     fi
     setup_security "${security_args[@]}"

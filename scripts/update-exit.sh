@@ -7,6 +7,7 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/xray.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
+source "$SCRIPT_DIR/lib/caddy.sh"
 
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 XUI_DB="/etc/x-ui/x-ui.db"
@@ -51,6 +52,12 @@ main() {
     short_id=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$XRAY_CONFIG")
     dest=$(jq -r '.inbounds[0].streamSettings.realitySettings.dest' "$XRAY_CONFIG")
     xver=$(jq -r '.inbounds[0].streamSettings.realitySettings.xver' "$XRAY_CONFIG")
+
+    local is_selfsteal=false
+    if [[ "$dest" == *"caddy.sock"* ]]; then
+        is_selfsteal=true
+        log_info "SelfSteal mode detected"
+    fi
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
     xhttp_path=$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path' "$XRAY_CONFIG" | sed 's|^/||')
     listen_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG")
@@ -93,6 +100,12 @@ main() {
             rm -f /tmp/xui-answers
             log_ok "3X-UI upgraded"
         fi
+
+        if [[ "$is_selfsteal" == true ]]; then
+            log_info "Upgrading Caddy..."
+            apt-get update -qq && apt-get install -y -qq caddy > /dev/null 2>&1
+            log_ok "Caddy upgraded"
+        fi
     fi
 
     # --- Step 5: Update XRAY config ---
@@ -119,6 +132,9 @@ main() {
     security_args+=(22:SSH 443:XRAY)
     if [[ -n "$panel_port" ]]; then
         security_args+=("$panel_port:3X-UI Panel")
+    fi
+    if [[ "$is_selfsteal" == true ]]; then
+        security_args+=(80:Caddy-ACME)
     fi
     setup_security "${security_args[@]}"
 
