@@ -62,7 +62,7 @@ main() {
     local is_cdn=false cdn_ws_port="" cdn_ws_path=""
     cdn_ws_port=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .port' "$XRAY_CONFIG" 2>/dev/null) || true
     cdn_ws_path=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .streamSettings.wsSettings.path' "$XRAY_CONFIG" 2>/dev/null | sed 's|^/||') || true
-    if [[ -n "$cdn_ws_port" && "$cdn_ws_port" != "null" ]]; then
+    if [[ -n "$cdn_ws_port" && "$cdn_ws_port" != "null" && -n "$cdn_ws_path" && "$cdn_ws_path" != "null" ]]; then
         is_cdn=true
         log_info "CDN mode detected (WS port: $cdn_ws_port)"
     fi
@@ -184,7 +184,7 @@ EOF
     # --- Step 8: Verify ---
     local selfsteal_domain=""
     [[ "$is_selfsteal" == true ]] && selfsteal_domain="$server_name"
-    verify_exit_server "${panel_port:-0}" "$selfsteal_domain"
+    verify_exit_server "${panel_port:-0}" "$selfsteal_domain" "${cdn_ws_port:-}"
 
     # --- Done ---
     echo ""

@@ -159,7 +159,7 @@ main() {
     setup_security "${security_args[@]}"
 
     # --- Step 6: Verify ---
-    verify_exit_server "$panel_port" "${selfsteal_domain:-}"
+    verify_exit_server "$panel_port" "${selfsteal_domain:-}" "${cdn_ws_port:-}"
 
     # --- Done ---
     local server_ip
