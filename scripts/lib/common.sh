@@ -98,7 +98,27 @@ validate_not_empty() {
 }
 
 generate_random_port() {
-    shuf -i 10000-60000 -n 1
+    local excluded_ports=("$@")
+    local port
+    while true; do
+        port=$(shuf -i 10000-60000 -n 1)
+        # Skip if port is already listening
+        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+            continue
+        fi
+        # Skip if in excluded list
+        local collision=false
+        for ep in "${excluded_ports[@]}"; do
+            if [[ "$port" == "$ep" ]]; then
+                collision=true
+                break
+            fi
+        done
+        if [[ "$collision" == false ]]; then
+            echo "$port"
+            return
+        fi
+    done
 }
 
 generate_random_path() {
