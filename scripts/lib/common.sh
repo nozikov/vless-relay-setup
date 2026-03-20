@@ -117,3 +117,29 @@ update_system() {
     apt-get update -qq && apt-get upgrade -y -qq > /dev/null 2>&1
     log_ok "System updated"
 }
+
+validate_domain() {
+    local domain="$1"
+    [[ "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?\.[a-zA-Z]{2,}$ ]]
+}
+
+check_domain_dns() {
+    local domain="$1"
+    local server_ip
+    server_ip=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null) || server_ip=""
+    local domain_ip
+    domain_ip=$(getent hosts "$domain" 2>/dev/null | awk '{print $1}' | head -1) || domain_ip=""
+
+    if [[ -z "$domain_ip" ]]; then
+        log_error "DNS for ${domain} does not resolve"
+        log_error "Set A-record: ${domain} → ${server_ip}"
+        return 1
+    fi
+
+    if [[ -n "$server_ip" && "$domain_ip" != "$server_ip" ]]; then
+        log_error "DNS for ${domain} resolves to ${domain_ip}, but this server is ${server_ip}"
+        return 1
+    fi
+
+    log_ok "DNS verified: ${domain} → ${domain_ip}"
+}
