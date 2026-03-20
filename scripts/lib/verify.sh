@@ -30,6 +30,7 @@ verify_port_listening() {
 
 verify_exit_server() {
     local panel_port="$1"
+    local selfsteal_domain="${2:-}"
 
     log_info "=== Verification ==="
     local ok=true
@@ -38,6 +39,12 @@ verify_exit_server() {
     verify_service_running x-ui "3X-UI" || ok=false
     verify_port_listening 443 "XRAY" || ok=false
     verify_port_listening "$panel_port" "3X-UI Panel" || ok=false
+
+    if [[ -n "$selfsteal_domain" ]]; then
+        verify_caddy_running || ok=false
+        verify_port_listening 80 "Caddy ACME" || ok=false
+        verify_selfsteal_response "$selfsteal_domain" || true  # non-fatal
+    fi
 
     if [[ "$ok" == true ]]; then
         log_ok "Exit server verification PASSED"
@@ -51,6 +58,7 @@ verify_relay_server() {
     local sub_port="${2:-}"
     local exit_ip="$3"
     local exit_port="$4"
+    local selfsteal_domain="${5:-}"
 
     log_info "=== Verification ==="
     local ok=true
@@ -59,8 +67,14 @@ verify_relay_server() {
     verify_port_listening 443 "XRAY (via 3X-UI)" || ok=false
     verify_port_listening "$panel_port" "3X-UI Panel" || ok=false
 
-    if [[ -n "$sub_port" ]]; then
+    if [[ -n "$sub_port" ]] && [[ -z "$selfsteal_domain" ]]; then
         verify_port_listening "$sub_port" "Subscription" || ok=false
+    fi
+
+    if [[ -n "$selfsteal_domain" ]]; then
+        verify_caddy_running || ok=false
+        verify_port_listening 80 "Caddy ACME" || ok=false
+        verify_selfsteal_response "$selfsteal_domain" || true  # non-fatal
     fi
 
     # Test relay → exit connectivity
@@ -77,5 +91,21 @@ verify_relay_server() {
         log_ok "Relay server verification PASSED"
     else
         log_error "Relay server verification FAILED — check errors above"
+    fi
+}
+
+verify_caddy_running() {
+    verify_service_running caddy "Caddy"
+}
+
+verify_selfsteal_response() {
+    local domain="$1"
+    log_info "Testing SelfSteal site (https://${domain})..."
+    if curl -s --max-time 10 -o /dev/null -w '%{http_code}' "https://${domain}" 2>/dev/null | grep -q "200"; then
+        log_ok "SelfSteal site responds at https://${domain}"
+        return 0
+    else
+        log_warn "SelfSteal site not reachable at https://${domain} (cert may still be issuing)"
+        return 1
     fi
 }

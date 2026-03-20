@@ -119,7 +119,7 @@ main() {
     setup_security "${security_args[@]}"
 
     # --- Step 6: Verify ---
-    verify_exit_server "$panel_port"
+    verify_exit_server "$panel_port" "${selfsteal_domain:-}"
 
     # --- Done ---
     local server_ip

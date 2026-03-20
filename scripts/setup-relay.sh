@@ -220,7 +220,7 @@ main() {
     setup_security "${security_args[@]}"
 
     # --- Step 7: Verify ---
-    verify_relay_server "$panel_port" "$sub_port" "$exit_ip" "$exit_port"
+    verify_relay_server "$panel_port" "$sub_port" "$exit_ip" "$exit_port" "${selfsteal_domain:-}"
 
     # --- Done ---
     local server_ip
