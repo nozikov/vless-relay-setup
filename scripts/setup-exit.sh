@@ -93,7 +93,8 @@ main() {
         export REALITY_DEST="$CADDY_SOCK"
         export REALITY_SERVER_NAME="$selfsteal_domain"
         generate_caddyfile "$selfsteal_domain"
-        start_caddy
+        # Caddy is NOT started here — port 80 must stay free for 3X-UI installer
+        # (its ACME HTTP-01 challenge needs port 80). start_caddy runs after install_3xui.
         setup_caddy_systemd_dependency "xray"
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
@@ -114,6 +115,11 @@ main() {
     log_info "=== 3X-UI Setup ==="
     install_3xui
     configure_3xui "$panel_port" "$panel_path" "$admin_user" "$admin_pass"
+
+    # Start Caddy AFTER 3X-UI is installed (port 80 is now free)
+    if [[ -n "$selfsteal_domain" ]]; then
+        start_caddy
+    fi
 
     # --- Step 5: Security ---
     log_info "=== Security Setup ==="

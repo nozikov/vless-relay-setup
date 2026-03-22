@@ -55,7 +55,7 @@ prompt_password() {
     while true; do
         read -srp "$prompt: " input
         echo
-        if [[ ! "$input" =~ ^[\ -~]+$ ]]; then
+        if [[ ! "$input" =~ ^[[:print:]]+$ ]]; then
             log_warn "Password contains non-ASCII characters (wrong keyboard layout?)"
             log_warn "Please try again with English layout"
             continue
