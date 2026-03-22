@@ -22,6 +22,14 @@ SelfSteal mode (optional):
   DPI probe → Caddy (unix socket) → real website with valid cert
   DNS A-record → server IP (eliminates IP/SNI mismatch)
   Caddy also reverse-proxies 3X-UI panel and subscriptions (relay only)
+
+CDN Fallback (optional, requires SelfSteal):
+  Client → Cloudflare CDN (simplers.club) → Exit server:443
+    → XRAY Reality → Caddy (unix socket) → 127.0.0.1:cdn_ws_port
+    → VLESS WebSocket inbound → internet
+  Separate domain on Cloudflare (Proxied, SSL: Full, WebSockets: ON)
+  Exit: Caddy routes WS path to local XRAY WS inbound
+  Relay: sub-proxy appends CDN VLESS link to subscription responses
 ```
 
 **Exit server**: XRAY runs as systemd service, config in `/usr/local/etc/xray/config.json`.
@@ -44,11 +52,12 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 
 - `common.sh` — logging (`log_info/ok/warn/error`), `prompt_input`, `prompt_password`, validation (`validate_domain`, `check_domain_dns`), random generation, `PROJECT_VERSION` from `VERSION` file
 - `security.sh` — SSH hardening (custom port support), UFW, fail2ban
-- `caddy.sh` — Caddy installation, Caddyfile generation, static site content, systemd dependency, uninstall (SelfSteal mode only)
+- `caddy.sh` — Caddy installation, Caddyfile generation, static site content, systemd dependency, sub-proxy setup, uninstall (SelfSteal mode only)
 - `reality.sh` — Reality key generation, destination site selection
-- `xray.sh` — XRAY installation, exit server JSON config
+- `xray.sh` — XRAY installation, exit server JSON config (including optional CDN WebSocket inbound)
 - `3xui.sh` — 3X-UI install/configure, SQLite operations, SSL certs, inbound/template management
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
+- `sub-proxy.py` — subscription proxy: sits between Caddy and 3X-UI subscription, appends CDN VLESS link. Passes through HTML pages (QR codes) for browsers, modifies only base64 responses for apps
 
 ## Critical Patterns
 
@@ -94,6 +103,8 @@ Both update scripts detect SelfSteal mode (by checking if `dest` contains `caddy
 
 The inbound patch in `update-relay.sh` runs between `x-ui stop` and `x-ui start` — same window as the template write. This is safe because x-ui is stopped (no in-memory overwrite risk).
 
+`update-relay.sh` also auto-updates the CDN VLESS link in sub-proxy if active. It reads the current exit UUID from the relay template, extracts CDN domain/path from the existing sub-proxy service file, regenerates the link, and rewrites the entire service file (not sed — `&` in URLs breaks sed replacements).
+
 ### Dest Format Convention
 
 Callers pass the FULL dest value including port if needed. Functions use it as-is without appending `:443`:
@@ -101,6 +112,22 @@ Callers pass the FULL dest value including port if needed. Functions use it as-i
 - SelfSteal mode: `dest="/dev/shm/caddy.sock"` (no port for unix socket)
 
 This affects `configure_xray_exit()`, `create_3xui_relay_inbound()`, and both update scripts.
+
+### CDN Fallback
+
+CDN Fallback adds a WebSocket inbound on exit (localhost-only) and a Caddy route for the CDN domain. Cloudflare proxies WS traffic to exit:443 → Caddy → XRAY WS inbound. All clients share one exit UUID on the CDN path.
+
+**Sub-proxy** on relay intercepts subscription responses. For browser requests (`Accept: text/html`), it passes through 3X-UI's HTML page with QR codes. For app requests (base64), it appends the CDN VLESS link. Environment: `CDN_VLESS_LINK` (with `%%` escaping for systemd), `SUB_UPSTREAM`, `SUB_PROXY_PORT`.
+
+**Caddy subscription routing**: in SelfSteal+CDN mode, Caddy proxies subscriptions to sub-proxy port (not directly to 3X-UI). Sub-proxy then proxies to 3X-UI and modifies the response.
+
+**subURI**: 3X-UI setting that overrides the displayed subscription URL. Must include the full path with trailing content: `https://sub.domain/subPath/`. Without this, 3X-UI shows internal `http://127.0.0.1:port` links.
+
+**Service file rewriting**: Never use `sed` to modify sub-proxy.service — `&` in VLESS URLs is a sed special character. Always rewrite the entire file via heredoc.
+
+### Caddy Unix Socket Permissions
+
+XRAY runs as `nobody` but Caddy creates `/dev/shm/caddy.sock` with mode `0600` (root-only). `start_caddy()` does `chmod 0666` after start so XRAY can connect to the socket for Reality dest forwarding.
 
 ### Custom SSH Port
 
