@@ -167,7 +167,10 @@ main() {
             xui_db_set "subPath" "/$sub_path/"
             xui_db_set "subDomain" "$sub_domain"
             xui_db_set "subListen" "127.0.0.1"
-            # No issue_domain_cert — Caddy handles TLS termination
+            # Clear certs set by 3X-UI installer — Caddy handles TLS termination,
+            # subscription must listen on plain HTTP for Caddy reverse proxy to work
+            xui_db_set "subCertFile" ""
+            xui_db_set "subKeyFile" ""
         fi
 
         x-ui start
