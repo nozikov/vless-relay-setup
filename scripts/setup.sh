@@ -16,7 +16,6 @@ show_usage() {
     echo "                 Use --upgrade to also update XRAY and 3X-UI binaries"
     echo "  update-relay — Update relay server config from latest codebase"
     echo "                 Use --upgrade to also update 3X-UI"
-    echo "  sync-cdn     — Sync relay clients to CDN inbound (run on relay after adding clients)"
     echo "  uninstall    — Remove all VPN components (keeps SSH keys and certs)"
     echo "                 Use --purge-certs to also remove SSL certificates"
     echo ""
@@ -37,15 +36,6 @@ case "${1:-}" in
         ;;
     update-relay)
         exec "$SCRIPT_DIR/update-relay.sh" "${@:2}"
-        ;;
-    sync-cdn)
-        source "$SCRIPT_DIR/lib/3xui.sh"
-        check_root
-        log_info "=== CDN Client Sync ==="
-        x-ui stop
-        sync_cdn_clients
-        x-ui start
-        log_ok "Done. Clients can update their subscriptions now."
         ;;
     uninstall)
         exec "$SCRIPT_DIR/uninstall.sh" "${@:2}"

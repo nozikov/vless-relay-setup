@@ -186,9 +186,21 @@ main() {
 
         x-ui start
 
+        # CDN subscription proxy: sits between Caddy and 3X-UI subscription,
+        # appends the correct CDN VLESS link to every subscription response.
+        # Must be set up BEFORE Caddyfile generation so Caddy gets the proxy port.
+        local caddy_sub_port="$sub_port"
+        if [[ -n "$cdn_domain" && -n "$sub_port" ]]; then
+            local cdn_vless_link sub_proxy_port
+            cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=ws&security=tls&path=%2F${cdn_ws_path}&host=${cdn_domain}&sni=${cdn_domain}#CDN%20Fallback"
+            sub_proxy_port=$((sub_port + 1))
+            setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port"
+            caddy_sub_port="$sub_proxy_port"
+        fi
+
         # Generate Caddyfile with all domains
         generate_caddyfile "$selfsteal_domain" "$panel_domain" "$panel_port" \
-            "$sub_domain" "$sub_port"
+            "$sub_domain" "$caddy_sub_port"
         start_caddy
         setup_caddy_systemd_dependency "x-ui"
     else
@@ -217,13 +229,6 @@ main() {
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
         "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
 
-    local cdn_sub_id=""
-    if [[ -n "$cdn_domain" ]]; then
-        cdn_sub_id=$(head -c 8 /dev/urandom | xxd -p)
-        create_3xui_cdn_inbound "$exit_uuid" "$cdn_domain" "$cdn_ws_path" \
-            "$cdn_sub_id"
-    fi
-
     # First restart: 3X-UI loads inbound + template, normalizes inbound JSON
     x-ui restart
     log_ok "3X-UI restarted with relay inbound and routing"
@@ -231,29 +236,9 @@ main() {
     # Patch fields that 3X-UI strips on normalization (subId, publicKey for subscriptions)
     patch_3xui_relay_inbound "$default_sub_id" "$REALITY_PUBLIC_KEY"
 
-    if [[ -n "$cdn_domain" ]]; then
-        patch_3xui_cdn_inbound "$cdn_sub_id"
-        sync_cdn_clients
-    fi
-
     # Final restart: xray picks up patched config
     x-ui restart
     log_ok "3X-UI restarted with patched subscription fields"
-
-    # CDN subscription proxy: appends CDN VLESS link to subscription responses
-    if [[ -n "$cdn_domain" && -n "$sub_port" && -n "$selfsteal_domain" ]]; then
-        local cdn_vless_link sub_proxy_port
-        cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=ws&security=tls&path=%2F${cdn_ws_path}&host=${cdn_domain}&sni=${cdn_domain}#CDN%20Fallback"
-        sub_proxy_port=$((sub_port + 1))
-        setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port"
-
-        # Rewrite Caddy subscription to proxy through sub-proxy instead of 3X-UI directly
-        if [[ -f /etc/caddy/Caddyfile ]]; then
-            sed -i "s|reverse_proxy 127.0.0.1:${sub_port}|reverse_proxy 127.0.0.1:${sub_proxy_port}|" /etc/caddy/Caddyfile
-            systemctl reload caddy
-            log_ok "Caddy subscription now proxies through sub-proxy (CDN link appended)"
-        fi
-    fi
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
