@@ -38,10 +38,8 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr"/></marker>
 </defs>
 
-<g class="en">
-<rect x="275" y="10" width="130" height="38" rx="8"/>
-<text class="h" x="340" y="32" text-anchor="middle" dominant-baseline="central">setup.sh</text>
-</g>
+<g class="en"><rect x="275" y="10" width="130" height="38" rx="8"/>
+<text class="h" x="340" y="32" text-anchor="middle" dominant-baseline="central">setup.sh</text></g>
 
 <path d="M295 48 L72 82" class="arr" marker-end="url(#a)"/>
 <path d="M315 48 L210 82" class="arr" marker-end="url(#a)"/>
@@ -49,35 +47,25 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 <path d="M365 48 L470 82" class="arr" marker-end="url(#a)"/>
 <path d="M385 48 L608 82" class="arr" marker-end="url(#a)"/>
 
-<g class="ex">
-<rect x="12" y="84" width="120" height="42" rx="8"/>
+<g class="ex"><rect x="12" y="84" width="120" height="42" rx="8"/>
 <text class="h" x="72" y="98" text-anchor="middle" dominant-baseline="central">setup-exit.sh</text>
-<text class="s" x="72" y="114" text-anchor="middle" dominant-baseline="central">exit-сервер</text>
-</g>
+<text class="s" x="72" y="114" text-anchor="middle" dominant-baseline="central">exit node</text></g>
 
-<g class="rl">
-<rect x="148" y="84" width="124" height="42" rx="8"/>
+<g class="rl"><rect x="148" y="84" width="124" height="42" rx="8"/>
 <text class="h" x="210" y="98" text-anchor="middle" dominant-baseline="central">setup-relay.sh</text>
-<text class="s" x="210" y="114" text-anchor="middle" dominant-baseline="central">relay-сервер</text>
-</g>
+<text class="s" x="210" y="114" text-anchor="middle" dominant-baseline="central">relay node</text></g>
 
-<g class="up">
-<rect x="288" y="84" width="112" height="42" rx="8"/>
+<g class="up"><rect x="288" y="84" width="112" height="42" rx="8"/>
 <text class="h" x="344" y="98" text-anchor="middle" dominant-baseline="central">update-exit.sh</text>
-<text class="s" x="344" y="114" text-anchor="middle" dominant-baseline="central">обновление exit</text>
-</g>
+<text class="s" x="344" y="114" text-anchor="middle" dominant-baseline="central">update exit</text></g>
 
-<g class="up">
-<rect x="416" y="84" width="114" height="42" rx="8"/>
+<g class="up"><rect x="416" y="84" width="114" height="42" rx="8"/>
 <text class="h" x="473" y="98" text-anchor="middle" dominant-baseline="central">update-relay.sh</text>
-<text class="s" x="473" y="114" text-anchor="middle" dominant-baseline="central">обновление relay</text>
-</g>
+<text class="s" x="473" y="114" text-anchor="middle" dominant-baseline="central">update relay</text></g>
 
-<g class="rm">
-<rect x="546" y="84" width="122" height="42" rx="8"/>
+<g class="rm"><rect x="546" y="84" width="122" height="42" rx="8"/>
 <text class="h" x="607" y="98" text-anchor="middle" dominant-baseline="central">uninstall.sh</text>
-<text class="s" x="607" y="114" text-anchor="middle" dominant-baseline="central">удаление</text>
-</g>
+<text class="s" x="607" y="114" text-anchor="middle" dominant-baseline="central">remove all</text></g>
 
 <path d="M72 126 L72 158" class="arr-d"/>
 <path d="M210 126 L210 158" class="arr-d"/>
@@ -87,29 +75,17 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 <rect class="lbc" x="16" y="158" width="540" height="118" rx="10"/>
 <text class="lbl" x="36" y="176">lib/</text>
 
-<g class="lb">
-<rect x="32" y="186" width="152" height="28" rx="6"/>
-<text class="m" x="108" y="203" text-anchor="middle" dominant-baseline="central">common.sh</text>
-</g>
-<g class="lb">
-<rect x="200" y="186" width="152" height="28" rx="6"/>
-<text class="m" x="276" y="203" text-anchor="middle" dominant-baseline="central">security.sh</text>
-</g>
-<g class="lb">
-<rect x="368" y="186" width="152" height="28" rx="6"/>
-<text class="m" x="444" y="203" text-anchor="middle" dominant-baseline="central">reality.sh</text>
-</g>
+<g class="lb"><rect x="32" y="186" width="152" height="28" rx="6"/>
+<text class="m" x="108" y="203" text-anchor="middle" dominant-baseline="central">common.sh</text></g>
+<g class="lb"><rect x="200" y="186" width="152" height="28" rx="6"/>
+<text class="m" x="276" y="203" text-anchor="middle" dominant-baseline="central">security.sh</text></g>
+<g class="lb"><rect x="368" y="186" width="152" height="28" rx="6"/>
+<text class="m" x="444" y="203" text-anchor="middle" dominant-baseline="central">reality.sh</text></g>
 
-<g class="lb">
-<rect x="32" y="228" width="152" height="28" rx="6"/>
-<text class="m" x="108" y="245" text-anchor="middle" dominant-baseline="central">xray.sh</text>
-</g>
-<g class="lb">
-<rect x="200" y="228" width="152" height="28" rx="6"/>
-<text class="m" x="276" y="245" text-anchor="middle" dominant-baseline="central">3xui.sh</text>
-</g>
-<g class="lb">
-<rect x="368" y="228" width="152" height="28" rx="6"/>
-<text class="m" x="444" y="245" text-anchor="middle" dominant-baseline="central">verify.sh</text>
-</g>
+<g class="lb"><rect x="32" y="228" width="152" height="28" rx="6"/>
+<text class="m" x="108" y="245" text-anchor="middle" dominant-baseline="central">xray.sh</text></g>
+<g class="lb"><rect x="200" y="228" width="152" height="28" rx="6"/>
+<text class="m" x="276" y="245" text-anchor="middle" dominant-baseline="central">3xui.sh</text></g>
+<g class="lb"><rect x="368" y="228" width="152" height="28" rx="6"/>
+<text class="m" x="444" y="245" text-anchor="middle" dominant-baseline="central">verify.sh</text></g>
 </svg>

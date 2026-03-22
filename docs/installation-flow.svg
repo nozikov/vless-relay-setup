@@ -34,46 +34,36 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 <marker id="as" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="4" markerHeight="4" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr-skip"/></marker>
 </defs>
 
-<g class="s1">
-<rect x="16" y="44" width="110" height="52" rx="8"/>
-<text class="h" x="71" y="64" text-anchor="middle" dominant-baseline="central">1. Exit-сервер</text>
-<text class="s" x="71" y="80" text-anchor="middle" dominant-baseline="central">XRAY + 3X-UI</text>
-</g>
+<g class="s1"><rect x="16" y="44" width="110" height="52" rx="8"/>
+<text class="h" x="71" y="64" text-anchor="middle" dominant-baseline="central">1. Exit Node</text>
+<text class="s" x="71" y="80" text-anchor="middle" dominant-baseline="central">XRAY + 3X-UI</text></g>
 
 <line x1="128" y1="70" x2="146" y2="70" class="arr" marker-end="url(#a)"/>
 
-<g class="s2">
-<rect x="148" y="44" width="116" height="52" rx="8"/>
-<text class="h" x="206" y="64" text-anchor="middle" dominant-baseline="central">2. Relay-сервер</text>
-<text class="s" x="206" y="80" text-anchor="middle" dominant-baseline="central">3X-UI + маршрут</text>
-</g>
+<g class="s2"><rect x="148" y="44" width="116" height="52" rx="8"/>
+<text class="h" x="206" y="64" text-anchor="middle" dominant-baseline="central">2. Relay Node</text>
+<text class="s" x="206" y="80" text-anchor="middle" dominant-baseline="central">3X-UI + routing</text></g>
 
 <line x1="266" y1="70" x2="284" y2="70" class="arr" marker-end="url(#a)"/>
 
-<g class="s3">
-<rect x="286" y="44" width="106" height="52" rx="8"/>
+<g class="s3"><rect x="286" y="44" width="106" height="52" rx="8"/>
 <text class="h" x="339" y="64" text-anchor="middle" dominant-baseline="central">3. DNS</text>
-<text class="s" x="339" y="80" text-anchor="middle" dominant-baseline="central">опционально</text>
-</g>
+<text class="s" x="339" y="80" text-anchor="middle" dominant-baseline="central">optional</text></g>
 
 <line x1="394" y1="70" x2="412" y2="70" class="arr" marker-end="url(#a)"/>
 
 <path d="M264 44 C280 14,400 14,414 44" class="arr-skip" marker-end="url(#as)"/>
-<text class="nt" x="339" y="18" text-anchor="middle">без домена</text>
+<text class="nt" x="339" y="18" text-anchor="middle">no domain</text>
 
-<g class="s4">
-<rect x="414" y="44" width="122" height="52" rx="8"/>
-<text class="h" x="475" y="64" text-anchor="middle" dominant-baseline="central">4. Пользователи</text>
-<text class="s" x="475" y="80" text-anchor="middle" dominant-baseline="central">добавить в панели</text>
-</g>
+<g class="s4"><rect x="414" y="44" width="122" height="52" rx="8"/>
+<text class="h" x="475" y="64" text-anchor="middle" dominant-baseline="central">4. Add Users</text>
+<text class="s" x="475" y="80" text-anchor="middle" dominant-baseline="central">via panel</text></g>
 
 <line x1="538" y1="70" x2="556" y2="70" class="arr" marker-end="url(#a)"/>
 
-<g class="s5">
-<rect x="558" y="44" width="108" height="52" rx="8"/>
-<text class="h" x="612" y="64" text-anchor="middle" dominant-baseline="central">5. Клиент</text>
-<text class="s" x="612" y="80" text-anchor="middle" dominant-baseline="central">VPN-приложение</text>
-</g>
+<g class="s5"><rect x="558" y="44" width="108" height="52" rx="8"/>
+<text class="h" x="612" y="64" text-anchor="middle" dominant-baseline="central">5. Client</text>
+<text class="s" x="612" y="80" text-anchor="middle" dominant-baseline="central">connect</text></g>
 
-<text class="nt" x="340" y="128" text-anchor="middle">Начинайте с exit → данные подключения передаются на relay → пользователи получают подписку</text>
+<text class="nt" x="340" y="128" text-anchor="middle">Start with exit &#x2192; connection data passed to relay &#x2192; users get subscription link</text>
 </svg>

@@ -19,7 +19,7 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 .arr-g{stroke:#3B6D11;stroke-width:1.5;fill:none}
 .lb{fill:#57606a}
 .nt{fill:#8b949e;font-size:10.5px;text-anchor:middle}
-.tt{font-size:12.5px;font-weight:600}
+.tt{font-size:12.5px;font-weight:600;text-anchor:middle}
 .sep{stroke:#57606a;stroke-width:.5;stroke-dasharray:4 4;opacity:.25}
 
 @media(prefers-color-scheme:dark){
@@ -36,62 +36,50 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr-g"/></marker>
 </defs>
 
-<!-- ===== Top: Without SelfSteal ===== -->
-<text class="tt lb" x="340" y="18" style="fill:#A32D2D">Без SelfSteal</text>
+<!-- Top: Without SelfSteal -->
+<text class="tt" x="340" y="18" style="fill:#A32D2D">Without SelfSteal</text>
 
-<g class="c1">
-<rect x="20" y="30" width="120" height="44" rx="8"/>
-<text class="h" x="80" y="46" text-anchor="middle" dominant-baseline="central">Клиент</text>
-<text class="s" x="80" y="62" text-anchor="middle" dominant-baseline="central">SNI: microsoft.com</text>
-</g>
+<g class="c1"><rect x="20" y="30" width="120" height="44" rx="8"/>
+<text class="h" x="80" y="46" text-anchor="middle" dominant-baseline="central">Client</text>
+<text class="s" x="80" y="62" text-anchor="middle" dominant-baseline="central">SNI: microsoft.com</text></g>
 
 <line x1="142" y1="52" x2="198" y2="52" class="arr-r" marker-end="url(#ar)"/>
 
-<g class="c2">
-<rect x="200" y="30" width="130" height="44" rx="8"/>
-<text class="h" x="265" y="46" text-anchor="middle" dominant-baseline="central">Relay :443</text>
-<text class="s" x="265" y="62" text-anchor="middle" dominant-baseline="central">IP: 91.x.x.x</text>
-</g>
+<g class="c2"><rect x="200" y="30" width="130" height="44" rx="8"/>
+<text class="h" x="265" y="46" text-anchor="middle" dominant-baseline="central">Server :443</text>
+<text class="s" x="265" y="62" text-anchor="middle" dominant-baseline="central">IP: 91.x.x.x</text></g>
 
 <line x1="332" y1="52" x2="388" y2="52" class="arr-r" marker-end="url(#ar)"/>
 
-<g class="bl">
-<rect x="390" y="30" width="180" height="44" rx="8"/>
-<text class="h" x="480" y="46" text-anchor="middle" dominant-baseline="central">DPI проверяет</text>
-<text class="s" x="480" y="62" text-anchor="middle" dominant-baseline="central">91.x.x.x ≠ microsoft.com</text>
-</g>
+<g class="bl"><rect x="390" y="30" width="180" height="44" rx="8"/>
+<text class="h" x="480" y="46" text-anchor="middle" dominant-baseline="central">SNI verification</text>
+<text class="s" x="480" y="62" text-anchor="middle" dominant-baseline="central">91.x.x.x &#x2260; microsoft.com</text></g>
 
 <text class="lb" x="620" y="48" style="font-size:18px;fill:#A32D2D;font-weight:700" dominant-baseline="central">&#x2717;</text>
-<text class="nt" x="620" y="66">Несовпадение</text>
+<text class="nt" x="620" y="66">Mismatch</text>
 
-<!-- ===== Separator ===== -->
+<!-- Separator -->
 <line x1="50" y1="100" x2="630" y2="100" class="sep"/>
 
-<!-- ===== Bottom: With SelfSteal ===== -->
-<text class="tt lb" x="340" y="124" style="fill:#3B6D11">С SelfSteal</text>
+<!-- Bottom: With SelfSteal -->
+<text class="tt" x="340" y="124" style="fill:#3B6D11">With SelfSteal</text>
 
-<g class="c1">
-<rect x="20" y="136" width="120" height="44" rx="8"/>
-<text class="h" x="80" y="152" text-anchor="middle" dominant-baseline="central">Клиент</text>
-<text class="s" x="80" y="168" text-anchor="middle" dominant-baseline="central">SNI: example.com</text>
-</g>
+<g class="c1"><rect x="20" y="136" width="120" height="44" rx="8"/>
+<text class="h" x="80" y="152" text-anchor="middle" dominant-baseline="central">Client</text>
+<text class="s" x="80" y="168" text-anchor="middle" dominant-baseline="central">SNI: example.com</text></g>
 
 <line x1="142" y1="158" x2="198" y2="158" class="arr-g" marker-end="url(#ag)"/>
 
-<g class="c2">
-<rect x="200" y="136" width="130" height="44" rx="8"/>
-<text class="h" x="265" y="152" text-anchor="middle" dominant-baseline="central">Relay :443</text>
-<text class="s" x="265" y="168" text-anchor="middle" dominant-baseline="central">IP: 91.x.x.x</text>
-</g>
+<g class="c2"><rect x="200" y="136" width="130" height="44" rx="8"/>
+<text class="h" x="265" y="152" text-anchor="middle" dominant-baseline="central">Server :443</text>
+<text class="s" x="265" y="168" text-anchor="middle" dominant-baseline="central">IP: 91.x.x.x</text></g>
 
 <line x1="332" y1="158" x2="388" y2="158" class="arr-g" marker-end="url(#ag)"/>
 
-<g class="ok">
-<rect x="390" y="136" width="180" height="44" rx="8"/>
-<text class="h" x="480" y="152" text-anchor="middle" dominant-baseline="central">DPI проверяет</text>
-<text class="s" x="480" y="168" text-anchor="middle" dominant-baseline="central">DNS example.com → 91.x.x.x</text>
-</g>
+<g class="ok"><rect x="390" y="136" width="180" height="44" rx="8"/>
+<text class="h" x="480" y="152" text-anchor="middle" dominant-baseline="central">SNI verification</text>
+<text class="s" x="480" y="168" text-anchor="middle" dominant-baseline="central">DNS example.com &#x2192; 91.x.x.x</text></g>
 
 <text class="lb" x="620" y="154" style="font-size:18px;fill:#3B6D11;font-weight:700" dominant-baseline="central">&#x2713;</text>
-<text class="nt" x="620" y="172">Всё совпадает</text>
+<text class="nt" x="620" y="172">Consistent</text>
 </svg>
