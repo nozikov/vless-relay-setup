@@ -27,8 +27,8 @@ configure_xray_exit() {
     local server_name="$6"
     local xhttp_path="$7"
     local xver="${8:-0}"
-    local cdn_ws_port="${9:-}"
-    local cdn_ws_path="${10:-}"
+    local cdn_port="${9:-}"
+    local cdn_path="${10:-}"
 
     log_info "Configuring XRAY as exit server..."
 
@@ -116,25 +116,31 @@ XRAYEOF
     mkdir -p /var/log/xray
     log_ok "XRAY exit config written"
 
-    if [[ -n "$cdn_ws_port" && -n "$cdn_ws_path" ]]; then
-        log_info "Adding CDN WebSocket inbound on 127.0.0.1:${cdn_ws_port}..."
+    if [[ -n "$cdn_port" && -n "$cdn_path" ]]; then
+        log_info "Adding CDN XHTTP inbound on 127.0.0.1:${cdn_port}..."
         local tmp_config
         if ! tmp_config=$(jq \
-            --argjson ws_port "$cdn_ws_port" \
-            --arg ws_path "$cdn_ws_path" \
+            --argjson cdn_port "$cdn_port" \
+            --arg cdn_path "$cdn_path" \
             '.inbounds += [{
-                tag: "vless-ws-in",
+                tag: "vless-cdn-in",
                 listen: "127.0.0.1",
-                port: $ws_port,
+                port: $cdn_port,
                 protocol: "vless",
                 settings: {
                     clients: [{ id: .inbounds[0].settings.clients[0].id }],
                     decryption: "none"
                 },
                 streamSettings: {
-                    network: "ws",
-                    wsSettings: {
-                        path: ("/"+$ws_path)
+                    network: "xhttp",
+                    xhttpSettings: {
+                        mode: "packet-up",
+                        path: ("/"+$cdn_path),
+                        extra: {
+                            xPaddingBytes: "100-1000",
+                            scMaxEachPostBytes: 1000000,
+                            scMaxBufferedPosts: 30
+                        }
                     }
                 },
                 sniffing: {
@@ -143,11 +149,11 @@ XRAYEOF
                     routeOnly: true
                 }
             }]' /usr/local/etc/xray/config.json); then
-            log_error "Failed to add CDN WebSocket inbound (jq error)"
+            log_error "Failed to add CDN XHTTP inbound (jq error)"
             exit 1
         fi
         echo "$tmp_config" > /usr/local/etc/xray/config.json
-        log_ok "CDN WebSocket inbound added (port: $cdn_ws_port)"
+        log_ok "CDN XHTTP inbound added (port: $cdn_port)"
     fi
 }
 
