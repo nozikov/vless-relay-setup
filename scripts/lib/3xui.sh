@@ -149,7 +149,16 @@ configure_3xui_relay_template() {
                         network: "xhttp",
                         xhttpSettings: {
                             mode: "auto",
-                            path: ("/"+$exit_xhttp_path)
+                            path: ("/"+$exit_xhttp_path),
+                            extra: {
+                                xPaddingBytes: "100-1000",
+                                scMinPostsIntervalMs: 30,
+                                xmux: {
+                                    maxConcurrency: "16-32",
+                                    maxConnections: 0,
+                                    cMaxReuseTimes: "64-128"
+                                }
+                            }
                         },
                         security: "reality",
                         realitySettings: {
