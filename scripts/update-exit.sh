@@ -59,12 +59,18 @@ main() {
         log_info "SelfSteal mode detected"
     fi
 
-    local is_cdn=false cdn_ws_port="" cdn_ws_path=""
-    cdn_ws_port=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .port' "$XRAY_CONFIG" 2>/dev/null) || true
-    cdn_ws_path=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .streamSettings.wsSettings.path' "$XRAY_CONFIG" 2>/dev/null | sed 's|^/||') || true
-    if [[ -n "$cdn_ws_port" && "$cdn_ws_port" != "null" && -n "$cdn_ws_path" && "$cdn_ws_path" != "null" ]]; then
+    local is_cdn=false cdn_port="" cdn_path=""
+    # Try new XHTTP tag first, fall back to old WS tag for migration
+    cdn_port=$(jq -r '.inbounds[] | select(.tag=="vless-cdn-in") | .port // empty' "$XRAY_CONFIG" 2>/dev/null) || true
+    cdn_path=$(jq -r '.inbounds[] | select(.tag=="vless-cdn-in") | .streamSettings.xhttpSettings.path // empty' "$XRAY_CONFIG" 2>/dev/null | sed 's|^/||') || true
+    if [[ -z "$cdn_port" ]]; then
+        # Migration: read from old WS inbound
+        cdn_port=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .port // empty' "$XRAY_CONFIG" 2>/dev/null) || true
+        cdn_path=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .streamSettings.wsSettings.path // empty' "$XRAY_CONFIG" 2>/dev/null | sed 's|^/||') || true
+    fi
+    if [[ -n "$cdn_port" && "$cdn_port" != "null" ]]; then
         is_cdn=true
-        log_info "CDN mode detected (WS port: $cdn_ws_port)"
+        log_info "CDN mode detected (port: $cdn_port)"
     fi
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
     xhttp_path=$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path' "$XRAY_CONFIG" | sed 's|^/||')
@@ -125,7 +131,7 @@ main() {
 
     configure_xray_exit "$listen_port" "$uuid" "$private_key" \
         "$short_id" "$dest" "$server_name" "$xhttp_path" "$xver" \
-        "$cdn_ws_port" "$cdn_ws_path"
+        "$cdn_port" "$cdn_path"
 
     if ! restart_xray; then
         log_warn "Restoring previous config..."
@@ -133,6 +139,17 @@ main() {
         restart_xray || { log_error "Rollback also failed"; exit 1; }
         log_ok "Previous config restored, XRAY is running"
         exit 1
+    fi
+
+    # Regenerate Caddyfile if SelfSteal + CDN (routing changed from WS to XHTTP)
+    if [[ "$is_selfsteal" == true && "$is_cdn" == true ]]; then
+        local cdn_domain
+        cdn_domain=$(grep -oP '(?<=https://)\S+(?= \{)' /etc/caddy/Caddyfile 2>/dev/null | grep -v "$server_name" | head -1) || true
+        if [[ -n "$cdn_domain" ]]; then
+            generate_caddyfile "$server_name" "" "" "" "" "$cdn_domain" "$cdn_path" "$cdn_port"
+            start_caddy
+            log_ok "Caddyfile regenerated (CDN XHTTP routing)"
+        fi
     fi
 
     # --- Step 6: Security ---
@@ -175,8 +192,8 @@ EOF
         if [[ -n "$cdn_domain" ]]; then
             cat >> /root/exit-server-info.txt << EOF
 CDN_DOMAIN=$cdn_domain
-CDN_WS_PATH=$cdn_ws_path
-CDN_WS_PORT=$cdn_ws_port
+CDN_PATH=$cdn_path
+CDN_PORT=$cdn_port
 EOF
         fi
     fi
@@ -184,7 +201,7 @@ EOF
     # --- Step 8: Verify ---
     local selfsteal_domain=""
     [[ "$is_selfsteal" == true ]] && selfsteal_domain="$server_name"
-    verify_exit_server "${panel_port:-0}" "$selfsteal_domain" "${cdn_ws_port:-}"
+    verify_exit_server "${panel_port:-0}" "$selfsteal_domain" "${cdn_port:-}"
 
     # --- Done ---
     echo ""

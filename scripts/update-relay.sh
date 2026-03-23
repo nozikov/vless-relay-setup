@@ -162,41 +162,94 @@ main() {
     fi
     log_ok "3X-UI restarted with updated template"
 
-    # --- Step 5b: Update CDN sub-proxy link if active ---
-    if systemctl is-active --quiet sub-proxy 2>/dev/null; then
-        log_info "Updating CDN subscription proxy..."
-        local cdn_env cdn_domain cdn_ws_path sub_upstream sub_proxy_port
-        cdn_env=$(grep 'CDN_VLESS_LINK=' /etc/systemd/system/sub-proxy.service 2>/dev/null) || true
-        if [[ -n "$cdn_env" ]]; then
-            cdn_domain=$(echo "$cdn_env" | grep -oP '(?<=@)[^:]+' | head -1)
-            cdn_ws_path=$(echo "$cdn_env" | grep -oP '(?<=path=%%2F)[^&]+' | head -1)
-            sub_upstream=$(grep 'SUB_UPSTREAM=' /etc/systemd/system/sub-proxy.service | head -1 | sed 's/.*SUB_UPSTREAM=//')
-            sub_proxy_port=$(grep 'SUB_PROXY_PORT=' /etc/systemd/system/sub-proxy.service | head -1 | sed 's/.*SUB_PROXY_PORT=//')
-            if [[ -n "$cdn_domain" && -n "$cdn_ws_path" && -n "$sub_upstream" && -n "$sub_proxy_port" ]]; then
-                local cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=ws&security=tls&path=%2F${cdn_ws_path}&host=${cdn_domain}&sni=${cdn_domain}#CDN%20Fallback"
-                local escaped_link="${cdn_vless_link//%/%%}"
-                # Rewrite entire service file (sed breaks on & in URLs)
-                cat > /etc/systemd/system/sub-proxy.service << SVCEOF
+    # --- Step 5b: Update CDN links in sub-proxy if active ---
+    local sub_proxy_service="/etc/systemd/system/sub-proxy.service"
+    if [[ -f "$sub_proxy_service" ]] && systemctl is-active --quiet sub-proxy 2>/dev/null; then
+        log_info "Updating CDN links in sub-proxy..."
+
+        # Read CDN params — prefer dedicated env vars, fall back to old URL parsing
+        local cdn_domain cdn_path
+        cdn_domain=$(grep -oP '(?<=CDN_DOMAIN=).+' "$sub_proxy_service") || true
+        cdn_path=$(grep -oP '(?<=CDN_PATH=).+' "$sub_proxy_service") || true
+        if [[ -z "$cdn_domain" ]]; then
+            # Migration from old format: parse from VLESS URL
+            cdn_domain=$(grep -oP '(?<=CDN_VLESS_LINK=vless://[^@]+@)[^:]+' "$sub_proxy_service") || true
+            cdn_path=$(grep -oP '(?<=path=%%2F)[^&]+' "$sub_proxy_service") || true
+        fi
+
+        if [[ -n "$cdn_domain" && -n "$cdn_path" ]]; then
+            # Read ExecStart from existing service file
+            local exec_start
+            exec_start=$(grep -oP '(?<=ExecStart=).+' "$sub_proxy_service") || true
+
+            # Read exit Reality params from the just-written template
+            local exit_pubkey_val exit_sni_val exit_short_id_val exit_xhttp_path_val exit_ip_val
+            exit_pubkey_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.publicKey')
+            exit_sni_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.serverName')
+            exit_short_id_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.shortId')
+            exit_xhttp_path_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings.path' | sed 's|^/||')
+            exit_ip_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].address')
+
+            # Symmetric XHTTP CDN link
+            local cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up#CDN%20XHTTP"
+
+            # Asymmetric CDN link with downloadSettings
+            local download_extra extra_encoded cdn_vless_link_asym
+            download_extra=$(jq -n -c \
+                --arg padding "100-1000" \
+                --arg addr "$exit_ip_val" \
+                --arg sni "$exit_sni_val" \
+                --arg pubkey "$exit_pubkey_val" \
+                --arg sid "$exit_short_id_val" \
+                --arg path "$exit_xhttp_path_val" \
+                '{
+                    xPaddingBytes: $padding,
+                    downloadSettings: {
+                        address: $addr, port: 443, network: "xhttp",
+                        security: "reality",
+                        realitySettings: {
+                            serverName: $sni, publicKey: $pubkey,
+                            shortId: $sid, fingerprint: "chrome"
+                        },
+                        xhttpSettings: { path: ("/"+$path), mode: "auto" }
+                    }
+                }')
+            extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$download_extra")
+            cdn_vless_link_asym="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up&extra=${extra_encoded}#CDN%20Asymmetric"
+
+            # Escape % for systemd
+            local link_escaped="${cdn_vless_link//%/%%}"
+            local link_asym_escaped="${cdn_vless_link_asym//%/%%}"
+
+            # Read existing service params
+            local sub_upstream sub_proxy_port
+            sub_upstream=$(grep -oP '(?<=SUB_UPSTREAM=).+' "$sub_proxy_service") || true
+            sub_proxy_port=$(grep -oP '(?<=SUB_PROXY_PORT=).+' "$sub_proxy_service") || true
+
+            # Rewrite entire service file (never sed — & in URLs breaks sed)
+            cat > "$sub_proxy_service" << SVCEOF
 [Unit]
 Description=Subscription proxy (appends CDN link)
 After=x-ui.service
 
 [Service]
 Type=simple
+Environment=CDN_VLESS_LINK=${link_escaped}
+Environment=CDN_VLESS_LINK_ASYM=${link_asym_escaped}
+Environment=CDN_DOMAIN=${cdn_domain}
+Environment=CDN_PATH=${cdn_path}
 Environment=SUB_UPSTREAM=${sub_upstream}
-Environment="CDN_VLESS_LINK=${escaped_link}"
 Environment=SUB_PROXY_PORT=${sub_proxy_port}
-ExecStart=/usr/bin/python3 /usr/local/bin/sub-proxy.py
+ExecStart=${exec_start}
 Restart=on-failure
 RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 SVCEOF
-                systemctl daemon-reload
-                systemctl restart sub-proxy
-                log_ok "CDN link updated with current exit UUID"
-            fi
+            systemctl daemon-reload
+            systemctl restart sub-proxy
+            log_ok "Sub-proxy updated with XHTTP CDN links"
         fi
     fi
 
