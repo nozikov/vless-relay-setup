@@ -31,7 +31,7 @@ verify_port_listening() {
 verify_exit_server() {
     local panel_port="$1"
     local selfsteal_domain="${2:-}"
-    local cdn_ws_port="${3:-}"
+    local cdn_port="${3:-}"
 
     log_info "=== Verification ==="
     local ok=true
@@ -47,8 +47,8 @@ verify_exit_server() {
         verify_selfsteal_response "$selfsteal_domain" || true  # non-fatal
     fi
 
-    if [[ -n "$cdn_ws_port" ]]; then
-        verify_port_listening "$cdn_ws_port" "CDN WebSocket (localhost)" || ok=false
+    if [[ -n "$cdn_port" ]]; then
+        verify_port_listening "$cdn_port" "CDN XHTTP (localhost)" || ok=false
     fi
 
     if [[ "$ok" == true ]]; then

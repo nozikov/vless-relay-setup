@@ -24,12 +24,16 @@ SelfSteal mode (optional):
   Caddy also reverse-proxies 3X-UI panel and subscriptions (relay only)
 
 CDN Fallback (optional, requires SelfSteal):
-  Client → Cloudflare CDN (simplers.club) → Exit server:443
-    → XRAY Reality → Caddy (unix socket) → 127.0.0.1:cdn_ws_port
-    → VLESS WebSocket inbound → internet
-  Separate domain on Cloudflare (Proxied, SSL: Full, WebSockets: ON)
-  Exit: Caddy routes WS path to local XRAY WS inbound
-  Relay: sub-proxy appends CDN VLESS link to subscription responses
+  Symmetric mode:
+    Client → Cloudflare CDN → Exit server:443
+      → XRAY Reality → Caddy (unix socket) → 127.0.0.1:cdn_port
+      → VLESS XHTTP inbound (packet-up mode) → internet
+  Asymmetric mode:
+    Upload: Client → Cloudflare CDN → Exit (same XHTTP inbound as symmetric)
+    Download: Client → Exit:443 (Reality XHTTP direct, same main inbound relay uses)
+  Separate domain on Cloudflare (Proxied, SSL: Full)
+  Exit: Caddy routes CDN path to local XRAY XHTTP inbound
+  Relay: sub-proxy appends CDN VLESS links (symmetric + asymmetric) to subscriptions
 ```
 
 **Exit server**: XRAY runs as systemd service, config in `/usr/local/etc/xray/config.json`.
@@ -54,10 +58,10 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 - `security.sh` — SSH hardening (custom port support), UFW, fail2ban
 - `caddy.sh` — Caddy installation, Caddyfile generation, static site content, systemd dependency, sub-proxy setup, uninstall (SelfSteal mode only)
 - `reality.sh` — Reality key generation, destination site selection
-- `xray.sh` — XRAY installation, exit server JSON config (including optional CDN WebSocket inbound)
+- `xray.sh` — XRAY installation, exit server JSON config (including optional CDN XHTTP inbound with padding)
 - `3xui.sh` — 3X-UI install/configure, SQLite operations, SSL certs, inbound/template management
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
-- `sub-proxy.py` — subscription proxy: sits between Caddy and 3X-UI subscription, appends CDN VLESS link. Passes through HTML pages (QR codes) for browsers, modifies only base64 responses for apps
+- `sub-proxy.py` — subscription proxy: sits between Caddy and 3X-UI subscription, appends CDN VLESS links (symmetric + asymmetric). Passes through HTML pages (QR codes) for browsers, modifies only base64 responses for apps
 
 ## Critical Patterns
 
@@ -103,7 +107,7 @@ Both update scripts detect SelfSteal mode (by checking if `dest` contains `caddy
 
 The inbound patch in `update-relay.sh` runs between `x-ui stop` and `x-ui start` — same window as the template write. This is safe because x-ui is stopped (no in-memory overwrite risk).
 
-`update-relay.sh` also auto-updates the CDN VLESS link in sub-proxy if active. It reads the current exit UUID from the relay template, extracts CDN domain/path from the existing sub-proxy service file, regenerates the link, and rewrites the entire service file (not sed — `&` in URLs breaks sed replacements).
+`update-relay.sh` also auto-updates CDN VLESS links in sub-proxy if active. It reads exit Reality params from the relay template, extracts CDN domain/path from the sub-proxy service file env vars (`CDN_DOMAIN`, `CDN_PATH`), regenerates both symmetric and asymmetric links, and rewrites the entire service file (not sed — `&` in URLs breaks sed replacements). For migration from pre-v1.4.0, it falls back to parsing the old VLESS URL if dedicated env vars are absent.
 
 ### Dest Format Convention
 
@@ -115,9 +119,13 @@ This affects `configure_xray_exit()`, `create_3xui_relay_inbound()`, and both up
 
 ### CDN Fallback
 
-CDN Fallback adds a WebSocket inbound on exit (localhost-only) and a Caddy route for the CDN domain. Cloudflare proxies WS traffic to exit:443 → Caddy → XRAY WS inbound. All clients share one exit UUID on the CDN path.
+CDN Fallback adds an XHTTP inbound on exit (localhost-only, packet-up mode) and a Caddy route for the CDN domain. Cloudflare proxies HTTP traffic to exit:443 → Caddy → XRAY XHTTP inbound. All clients share one exit UUID on the CDN path. Both main and CDN inbounds include `extra` block with `xPaddingBytes` for traffic padding.
 
-**Sub-proxy** on relay intercepts subscription responses. For browser requests (`Accept: text/html`), it passes through 3X-UI's HTML page with QR codes. For app requests (base64), it appends the CDN VLESS link. Environment: `CDN_VLESS_LINK` (with `%%` escaping for systemd), `SUB_UPSTREAM`, `SUB_PROXY_PORT`.
+**Asymmetric mode**: upload goes through Cloudflare CDN, download bypasses CDN via Reality direct to exit (reuses the main XHTTP inbound). Configured via `downloadSettings` in the client's `extra` parameter. Both symmetric and asymmetric links are included in subscriptions.
+
+**Sub-proxy** on relay intercepts subscription responses. For browser requests (`Accept: text/html`), it passes through 3X-UI's HTML page with QR codes. For app requests (base64), it appends CDN VLESS links (asymmetric first, then symmetric as fallback). Environment: `CDN_VLESS_LINK`, `CDN_VLESS_LINK_ASYM`, `CDN_DOMAIN`, `CDN_PATH`, `SUB_UPSTREAM`, `SUB_PROXY_PORT` (all with `%%` escaping for systemd where needed).
+
+**Caddy CDN routing**: uses `@cdn path /CDN_PATH*` matcher to route CDN requests to the local XHTTP inbound. No WebSocket-specific matchers needed — XHTTP uses standard HTTP POST/GET.
 
 **Caddy subscription routing**: in SelfSteal+CDN mode, Caddy proxies subscriptions to sub-proxy port (not directly to 3X-UI). Sub-proxy then proxies to 3X-UI and modifies the response.
 
