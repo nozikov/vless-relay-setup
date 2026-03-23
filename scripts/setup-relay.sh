@@ -52,15 +52,15 @@ main() {
     prompt_input "Exit server Reality SNI" exit_sni
     prompt_input "Exit server XHTTP path" exit_xhttp_path
 
-    local cdn_domain="" cdn_ws_path=""
+    local cdn_domain="" cdn_path=""
     prompt_input "Exit CDN domain (Enter if not configured)" cdn_domain ""
     if [[ -n "$cdn_domain" ]]; then
         if ! validate_domain "$cdn_domain"; then
             log_error "Invalid domain format: $cdn_domain"
             exit 1
         fi
-        prompt_input "Exit CDN WebSocket path" cdn_ws_path
-        validate_not_empty "$cdn_ws_path" "CDN WebSocket path" || exit 1
+        prompt_input "Exit CDN path (from exit-server-info.txt CDN_PATH)" cdn_path
+        validate_not_empty "$cdn_path" "CDN path" || exit 1
     fi
 
     # Validate exit server inputs
@@ -192,10 +192,43 @@ main() {
         # Must be set up BEFORE Caddyfile generation so Caddy gets the proxy port.
         local caddy_sub_port="$sub_port"
         if [[ -n "$cdn_domain" && -n "$sub_port" ]]; then
+            # Symmetric XHTTP CDN link
             local cdn_vless_link sub_proxy_port
-            cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=ws&security=tls&path=%2F${cdn_ws_path}&host=${cdn_domain}&sni=${cdn_domain}#CDN%20Fallback"
+            cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up#CDN%20XHTTP"
+
+            # Asymmetric CDN link with downloadSettings
+            local cdn_vless_link_asym="" download_extra extra_encoded
+            download_extra=$(jq -n -c \
+                --arg padding "100-1000" \
+                --arg exit_addr "$exit_ip" \
+                --arg exit_sni_val "$exit_sni" \
+                --arg exit_pubkey_val "$exit_pubkey" \
+                --arg exit_short_id_val "$exit_short_id" \
+                --arg exit_path "$exit_xhttp_path" \
+                '{
+                    xPaddingBytes: $padding,
+                    downloadSettings: {
+                        address: $exit_addr,
+                        port: 443,
+                        network: "xhttp",
+                        security: "reality",
+                        realitySettings: {
+                            serverName: $exit_sni_val,
+                            publicKey: $exit_pubkey_val,
+                            shortId: $exit_short_id_val,
+                            fingerprint: "chrome"
+                        },
+                        xhttpSettings: {
+                            path: ("/"+$exit_path),
+                            mode: "auto"
+                        }
+                    }
+                }')
+            extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$download_extra")
+            cdn_vless_link_asym="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up&extra=${extra_encoded}#CDN%20Asymmetric"
+
             sub_proxy_port=$((sub_port + 1))
-            setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port"
+            setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port" "$cdn_domain" "$cdn_path" "$cdn_vless_link_asym"
             caddy_sub_port="$sub_proxy_port"
         fi
 
@@ -317,11 +350,11 @@ main() {
     if [[ -n "$cdn_domain" ]]; then
         echo "  CDN Fallback: ${cdn_domain}"
         echo ""
-        local cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=ws&security=tls&path=%2F${cdn_ws_path}&host=${cdn_domain}&sni=${cdn_domain}#CDN%20Fallback"
+        local cdn_display_link="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up#CDN%20XHTTP"
         echo "-------------------------------------------"
         echo "  CDN VLESS link (for manual client setup):"
         echo "-------------------------------------------"
-        echo "  $cdn_vless_link"
+        echo "  $cdn_display_link"
         echo ""
     fi
     if [[ "$ssh_port" != "22" ]]; then
