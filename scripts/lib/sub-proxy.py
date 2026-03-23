@@ -16,6 +16,7 @@ import sys
 
 UPSTREAM = os.environ.get("SUB_UPSTREAM", "http://127.0.0.1:8443")
 CDN_LINK = os.environ.get("CDN_VLESS_LINK", "")
+CDN_LINK_ASYM = os.environ.get("CDN_VLESS_LINK_ASYM", "")
 LISTEN_PORT = int(os.environ.get("SUB_PROXY_PORT", "18443"))
 
 
@@ -53,11 +54,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
             return
 
-        # Subscription response (base64) → append CDN link
+        # Subscription response (base64) → append CDN links
+        cdn_links = []
+        if CDN_LINK_ASYM:
+            cdn_links.append(CDN_LINK_ASYM)
         if CDN_LINK:
+            cdn_links.append(CDN_LINK)
+        if cdn_links:
             try:
                 decoded = base64.b64decode(body).decode("utf-8", errors="replace")
-                combined = decoded.rstrip("\n") + "\n" + CDN_LINK + "\n"
+                combined = decoded.rstrip("\n") + "\n" + "\n".join(cdn_links) + "\n"
                 body = base64.b64encode(combined.encode()).rstrip(b"=")
             except Exception:
                 pass  # non-base64 response, return as-is
