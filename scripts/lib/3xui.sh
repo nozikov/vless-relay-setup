@@ -456,20 +456,20 @@ issue_domain_cert() {
 create_3xui_cdn_inbound() {
     local exit_uuid="$1"
     local cdn_domain="$2"
-    local cdn_ws_path="$3"
+    local cdn_path="$3"
     local sub_id="$4"
-    local cdn_ws_port="${5:-}"
+    local cdn_port="${5:-}"
 
     log_info "Creating CDN fallback inbound in 3X-UI database..."
 
     # Use a random localhost port — XRAY will listen but nothing connects externally
-    if [[ -z "$cdn_ws_port" ]]; then
-        cdn_ws_port=$(generate_random_port)
+    if [[ -z "$cdn_port" ]]; then
+        cdn_port=$(generate_random_port)
     fi
 
-    # Validate port is numeric (防止 SQL injection)
-    if ! [[ "$cdn_ws_port" =~ ^[0-9]+$ ]]; then
-        log_error "Invalid CDN WS port: $cdn_ws_port"
+    # Validate port is numeric
+    if ! [[ "$cdn_port" =~ ^[0-9]+$ ]]; then
+        log_error "Invalid CDN port: $cdn_port"
         return 1
     fi
 
@@ -495,17 +495,17 @@ create_3xui_cdn_inbound() {
         }')
 
     stream_settings=$(jq -n -c \
-        --arg ws_path "$cdn_ws_path" \
+        --arg cdn_path "$cdn_path" \
         '{
-            network: "ws",
+            network: "xhttp",
             security: "none",
-            wsSettings: {
-                path: ("/"+$ws_path),
-                headers: {}
+            xhttpSettings: {
+                path: ("/"+$cdn_path),
+                mode: "packet-up"
             }
         }')
 
-    sniffing='{"enabled":false}'
+    sniffing='{"enabled":true,"destOverride":["http","tls","quic"],"routeOnly":true}'
 
     local external_proxy
     external_proxy=$(jq -n -c \
@@ -535,7 +535,7 @@ create_3xui_cdn_inbound() {
             tag, sniffing, externalProxy
         ) VALUES (
             1, 0, 0, 0, 'CDN Fallback', 1, 0,
-            '127.0.0.1', ${cdn_ws_port}, 'vless',
+            '127.0.0.1', ${cdn_port}, 'vless',
             '${s_settings}', '${s_stream}',
             'inbound-cdn', '${s_sniffing}', '${s_external}'
         );"
@@ -551,7 +551,7 @@ create_3xui_cdn_inbound() {
             tag, sniffing
         ) VALUES (
             1, 0, 0, 0, 'CDN Fallback', 1, 0,
-            '127.0.0.1', ${cdn_ws_port}, 'vless',
+            '127.0.0.1', ${cdn_port}, 'vless',
             '${s_settings}', '${s_stream}',
             'inbound-cdn', '${s_sniffing}'
         );"
