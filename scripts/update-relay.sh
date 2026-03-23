@@ -182,26 +182,18 @@ main() {
             local exec_start
             exec_start=$(grep -oP '(?<=ExecStart=).+' "$sub_proxy_service") || true
 
-            # Read exit Reality params from the just-written template
-            local exit_pubkey_val exit_sni_val exit_short_id_val exit_xhttp_path_val exit_ip_val
-            exit_pubkey_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.publicKey')
-            exit_sni_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.serverName')
-            exit_short_id_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.shortId')
-            exit_xhttp_path_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings.path' | sed 's|^/||')
-            exit_ip_val=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].address')
-
-            # Symmetric XHTTP CDN link
+            # Symmetric XHTTP CDN link (exit params already extracted at lines 62-68)
             local cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up#CDN%20XHTTP"
 
             # Asymmetric CDN link with downloadSettings
             local download_extra extra_encoded cdn_vless_link_asym
             download_extra=$(jq -n -c \
                 --arg padding "100-1000" \
-                --arg addr "$exit_ip_val" \
-                --arg sni "$exit_sni_val" \
-                --arg pubkey "$exit_pubkey_val" \
-                --arg sid "$exit_short_id_val" \
-                --arg path "$exit_xhttp_path_val" \
+                --arg addr "$exit_ip" \
+                --arg sni "$exit_sni" \
+                --arg pubkey "$exit_pubkey" \
+                --arg sid "$exit_short_id" \
+                --arg path "$exit_xhttp_path" \
                 '{
                     xPaddingBytes: $padding,
                     downloadSettings: {
