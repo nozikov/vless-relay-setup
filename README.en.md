@@ -34,7 +34,7 @@ A backup route through Cloudflare CDN. If the direct path to the server is unava
 
 ![CDN comparison](./docs/cdn-comparison.svg)
 
-CDN Fallback is a backup channel. Reality remains the primary path (faster, lower overhead). The client receives both profiles via subscription and can switch when needed.
+CDN Fallback supports two modes. Asymmetric sends outbound traffic through CDN while inbound goes direct (faster). Symmetric routes everything through CDN (maximum resilience). Both profiles are available via subscription.
 
 ![CDN architecture](./docs/cdn-architecture.svg)
 
@@ -49,8 +49,8 @@ The exit node uses AdGuard DNS to filter ads and trackers at the DNS level. No c
 ### Features
 
 - **VLESS + XTLS-Reality** — TLS 1.3 protocol with minimal overhead and SNI masking
-- **CDN Fallback** — backup route through Cloudflare for additional resilience
-- **TLS ClientHello fragmentation** — splits the first handshake packet for traffic analysis protection
+- **Multi-tier CDN Fallback** — backup routes through Cloudflare with asymmetric mode
+- **Adaptive connection protection** — packet size randomization, connection rotation, multiplexing
 - **3X-UI panel** — web interface for user management, traffic limits, and monitoring
 - **Subscriptions** — automatic configuration updates on client devices
 - **SSH hardening + fail2ban + UFW** — automated server security configuration
@@ -128,7 +128,7 @@ With SelfSteal enabled, the script will also install Caddy, issue an SSL certifi
 CDN domain for Cloudflare (Enter to skip): ← CDN domain or Enter
 ```
 
-If a CDN domain is provided, the script configures a WebSocket inbound and Caddy route. Cloudflare setup instructions are shown at the end.
+If a CDN domain is provided, the script configures a CDN route through Caddy. Cloudflare setup instructions are shown at the end.
 
 The script outputs connection parameters at the end — **save them** for relay setup:
 
