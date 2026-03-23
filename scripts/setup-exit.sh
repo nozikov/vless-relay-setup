@@ -100,11 +100,11 @@ main() {
     xhttp_path=$(generate_random_path)
     log_ok "Generated UUID for relay connection: $exit_uuid"
 
-    local cdn_ws_path="" cdn_ws_port=""
+    local cdn_path="" cdn_port=""
     if [[ -n "$cdn_domain" ]]; then
-        cdn_ws_path=$(generate_random_path)
-        cdn_ws_port=$(generate_random_port "$panel_port")
-        log_ok "Generated CDN WebSocket path and port"
+        cdn_path=$(generate_random_path)
+        cdn_port=$(generate_random_port "$panel_port")
+        log_ok "Generated CDN path and port"
     fi
 
     if [[ -n "$selfsteal_domain" ]]; then
@@ -117,7 +117,7 @@ main() {
         export REALITY_DEST="$CADDY_SOCK"
         export REALITY_SERVER_NAME="$selfsteal_domain"
         generate_caddyfile "$selfsteal_domain" "" "" "" "" \
-            "$cdn_domain" "$cdn_ws_path" "$cdn_ws_port"
+            "$cdn_domain" "$cdn_path" "$cdn_port"
         # Caddy is NOT started yet — port 80 must stay free for 3X-UI installer
         # (its ACME HTTP-01 challenge needs port 80).
         # systemd dependency is also deferred: Wants=caddy.service would auto-start
@@ -125,7 +125,7 @@ main() {
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
             "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-            "$xhttp_path" 1 "$cdn_ws_port" "$cdn_ws_path"
+            "$xhttp_path" 1 "$cdn_port" "$cdn_path"
     else
         # Auto mode: select best external site
         setup_reality
@@ -159,7 +159,7 @@ main() {
     setup_security "${security_args[@]}"
 
     # --- Step 6: Verify ---
-    verify_exit_server "$panel_port" "${selfsteal_domain:-}" "${cdn_ws_port:-}"
+    verify_exit_server "$panel_port" "${selfsteal_domain:-}" "${cdn_port:-}"
 
     # --- Done ---
     local server_ip
@@ -180,8 +180,8 @@ EOF
     if [[ -n "$cdn_domain" ]]; then
         cat >> /root/exit-server-info.txt << EOF
 CDN_DOMAIN=$cdn_domain
-CDN_WS_PATH=$cdn_ws_path
-CDN_WS_PORT=$cdn_ws_port
+CDN_PATH=$cdn_path
+CDN_PORT=$cdn_port
 EOF
     fi
 
@@ -198,7 +198,7 @@ EOF
         echo "  SelfSteal: ${selfsteal_domain} (Caddy + unix socket)"
     fi
     if [[ -n "$cdn_domain" ]]; then
-        echo "  CDN:       ${cdn_domain} (Cloudflare WebSocket)"
+        echo "  CDN:       ${cdn_domain} (Cloudflare CDN)"
     fi
     echo ""
     echo "  Panel:     https://${server_ip}:${panel_port}/${panel_path}/"
@@ -223,7 +223,7 @@ EOF
     echo "  Exit XHTTP path:     $xhttp_path"
     if [[ -n "$cdn_domain" ]]; then
         echo "  Exit CDN domain:      $cdn_domain"
-        echo "  Exit CDN WS path:     $cdn_ws_path"
+        echo "  Exit CDN path:        $cdn_path"
     fi
     echo "-------------------------------------------"
     echo ""
@@ -236,7 +236,6 @@ EOF
         echo "  1. Add ${cdn_domain} to Cloudflare (free plan)"
         echo "  2. DNS: A ${cdn_domain} -> ${server_ip} (Proxy: ON)"
         echo "  3. SSL/TLS -> Full"
-        echo "  4. Network -> WebSockets: ON"
         echo ""
     fi
     echo "  Next: run ./scripts/setup.sh relay on the relay server"
