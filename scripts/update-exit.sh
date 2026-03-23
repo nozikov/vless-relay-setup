@@ -68,7 +68,7 @@ main() {
         cdn_port=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .port // empty' "$XRAY_CONFIG" 2>/dev/null) || true
         cdn_path=$(jq -r '.inbounds[] | select(.tag=="vless-ws-in") | .streamSettings.wsSettings.path // empty' "$XRAY_CONFIG" 2>/dev/null | sed 's|^/||') || true
     fi
-    if [[ -n "$cdn_port" && "$cdn_port" != "null" ]]; then
+    if [[ -n "$cdn_port" && "$cdn_port" != "null" && -n "$cdn_path" && "$cdn_path" != "null" ]]; then
         is_cdn=true
         log_info "CDN mode detected (port: $cdn_port)"
     fi

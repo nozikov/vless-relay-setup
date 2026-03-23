@@ -218,7 +218,7 @@ start_caddy() {
     fi
 
     systemctl enable caddy
-    systemctl start caddy
+    systemctl restart caddy
 
     if systemctl is-active --quiet caddy; then
         # XRAY (running as nobody) needs write access to the unix socket
