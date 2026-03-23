@@ -1,4 +1,4 @@
-<svg width="100%" viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg">
+<svg width="100%" viewBox="0 0 680 280" xmlns="http://www.w3.org/2000/svg">
 <style>
 text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif}
 .h{font-size:13px;font-weight:600}
@@ -11,14 +11,12 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 .c2 .h{fill:#26215C} .c2 .s{fill:#534AB7}
 .c6 rect{fill:#FEF0E1;stroke:#D4760A;stroke-width:.75}
 .c6 .h{fill:#4A2800} .c6 .s{fill:#D4760A}
-.bl rect{fill:#FCEBEB;stroke:#A32D2D;stroke-width:.75}
-.bl .h{fill:#501313} .bl .s{fill:#A32D2D}
+.c5 rect{fill:#E8F0FE;stroke:#1967D2;stroke-width:.75}
+.c5 .h{fill:#0D3B7A} .c5 .s{fill:#1967D2}
 .ok rect{fill:#EAF3DE;stroke:#3B6D11;stroke-width:.75}
 .ok .h{fill:#173404} .ok .s{fill:#3B6D11}
 
 .arr{stroke:#57606a;stroke-width:1.5;fill:none}
-.arr-r{stroke:#A32D2D;stroke-width:1.5;fill:none}
-.arr-g{stroke:#3B6D11;stroke-width:1.5;fill:none}
 .lb{fill:#57606a}
 .nt{fill:#8b949e;font-size:10.5px;text-anchor:middle}
 .tt{font-size:12.5px;font-weight:600}
@@ -28,63 +26,81 @@ text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,san
 .c1 rect{fill:#085041;stroke:#5DCAA5} .c1 .h{fill:#E1F5EE} .c1 .s{fill:#9FE1CB}
 .c2 rect{fill:#3C3489;stroke:#AFA9EC} .c2 .h{fill:#EEEDFE} .c2 .s{fill:#CECBF6}
 .c6 rect{fill:#5D3A00;stroke:#F5A623} .c6 .h{fill:#FEF0E1} .c6 .s{fill:#F5CF86}
-.bl rect{fill:#791F1F;stroke:#F09595} .bl .h{fill:#FCEBEB} .bl .s{fill:#F7C1C1}
+.c5 rect{fill:#0D3B7A;stroke:#8AB4F8} .c5 .h{fill:#E8F0FE} .c5 .s{fill:#AECBFA}
 .ok rect{fill:#27500A;stroke:#97C459} .ok .h{fill:#EAF3DE} .ok .s{fill:#C0DD97}
-.arr{stroke:#8b949e} .arr-r{stroke:#F09595} .arr-g{stroke:#97C459}
-.lb{fill:#8b949e} .nt{fill:#656d76} .sep{stroke:#8b949e}
+.arr{stroke:#8b949e} .lb{fill:#8b949e} .nt{fill:#656d76} .sep{stroke:#8b949e}
 }
 </style>
 <defs>
-<marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr-r"/></marker>
-<marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr-g"/></marker>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 2L7 5L1 8" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="arr"/></marker>
 </defs>
 
-<!-- Top: Direct path unavailable -->
-<text class="tt lb" x="340" y="18" style="fill:#A32D2D">Direct path unavailable</text>
+<!-- Row 1: Main (relay chain) -->
+<text class="tt lb" x="340" y="18" style="fill:#0F6E56">Main: Relay chain (lowest latency)</text>
 
 <g class="c1"><rect x="20" y="30" width="120" height="44" rx="8"/>
 <text class="h" x="80" y="46" text-anchor="middle" dominant-baseline="central">Client</text>
-<text class="s" x="80" y="62" text-anchor="middle" dominant-baseline="central">SNI: example.com</text></g>
+<text class="s" x="80" y="62" text-anchor="middle" dominant-baseline="central">Reality TCP</text></g>
 
-<line x1="142" y1="52" x2="198" y2="52" class="arr-r" marker-end="url(#ar)"/>
+<line x1="142" y1="52" x2="248" y2="52" class="arr" marker-end="url(#a)"/>
 
-<g class="bl"><rect x="200" y="30" width="180" height="44" rx="8"/>
-<text class="h" x="290" y="46" text-anchor="middle" dominant-baseline="central">Network</text>
-<text class="s" x="290" y="62" text-anchor="middle" dominant-baseline="central">Server IP unreachable</text></g>
+<g class="c2"><rect x="250" y="30" width="130" height="44" rx="8"/>
+<text class="h" x="315" y="46" text-anchor="middle" dominant-baseline="central">Relay</text>
+<text class="s" x="315" y="62" text-anchor="middle" dominant-baseline="central">XHTTP + Fragment</text></g>
 
-<line x1="382" y1="52" x2="438" y2="52" class="arr-r" marker-end="url(#ar)"/>
+<line x1="382" y1="52" x2="448" y2="52" class="arr" marker-end="url(#a)"/>
 
-<g class="c2"><rect x="440" y="30" width="120" height="44" rx="8"/>
-<text class="h" x="500" y="46" text-anchor="middle" dominant-baseline="central">Relay</text>
-<text class="s" x="500" y="62" text-anchor="middle" dominant-baseline="central">:443</text></g>
+<g class="ok"><rect x="450" y="30" width="120" height="44" rx="8"/>
+<text class="h" x="510" y="46" text-anchor="middle" dominant-baseline="central">Exit</text>
+<text class="s" x="510" y="62" text-anchor="middle" dominant-baseline="central">Reality XHTTP</text></g>
 
-<text class="lb" x="608" y="48" style="font-size:18px;fill:#A32D2D;font-weight:700" dominant-baseline="central">&#x2717;</text>
-<text class="nt" x="608" y="66">Unavailable</text>
+<text class="nt" x="620" y="56">Fastest</text>
 
-<!-- Separator -->
-<line x1="50" y1="100" x2="630" y2="100" class="sep"/>
+<!-- Separator 1 -->
+<line x1="50" y1="96" x2="630" y2="96" class="sep"/>
 
-<!-- Bottom: CDN fallback path -->
-<text class="tt lb" x="340" y="124" style="fill:#3B6D11">CDN Fallback path</text>
+<!-- Row 2: CDN Asymmetric -->
+<text class="tt lb" x="340" y="118" style="fill:#1967D2">CDN Asymmetric (high privacy)</text>
 
-<g class="c1"><rect x="20" y="136" width="120" height="44" rx="8"/>
-<text class="h" x="80" y="152" text-anchor="middle" dominant-baseline="central">Client</text>
-<text class="s" x="80" y="168" text-anchor="middle" dominant-baseline="central">SNI: cdn-domain.com</text></g>
+<g class="c1"><rect x="20" y="130" width="120" height="44" rx="8"/>
+<text class="h" x="80" y="146" text-anchor="middle" dominant-baseline="central">Client</text>
+<text class="s" x="80" y="162" text-anchor="middle" dominant-baseline="central">Split upload/download</text></g>
 
-<line x1="142" y1="158" x2="198" y2="158" class="arr-g" marker-end="url(#ag)"/>
+<line x1="142" y1="152" x2="248" y2="152" class="arr" marker-end="url(#a)"/>
 
-<g class="ok"><rect x="200" y="136" width="180" height="44" rx="8"/>
-<text class="h" x="290" y="152" text-anchor="middle" dominant-baseline="central">Network</text>
-<text class="s" x="290" y="168" text-anchor="middle" dominant-baseline="central">Cloudflare IP &#x2014; allowed</text></g>
+<g class="c6"><rect x="250" y="130" width="130" height="44" rx="8"/>
+<text class="h" x="315" y="146" text-anchor="middle" dominant-baseline="central">Cloudflare CDN</text>
+<text class="s" x="315" y="162" text-anchor="middle" dominant-baseline="central">Upload only</text></g>
 
-<line x1="382" y1="158" x2="418" y2="158" class="arr-g" marker-end="url(#ag)"/>
+<line x1="382" y1="152" x2="448" y2="152" class="arr" marker-end="url(#a)"/>
 
-<g class="c6"><rect x="420" y="136" width="110" height="44" rx="8"/>
-<text class="h" x="475" y="152" text-anchor="middle" dominant-baseline="central">Cloudflare</text>
-<text class="s" x="475" y="168" text-anchor="middle" dominant-baseline="central">CDN</text></g>
+<g class="c5"><rect x="450" y="130" width="120" height="44" rx="8"/>
+<text class="h" x="510" y="146" text-anchor="middle" dominant-baseline="central">Exit</text>
+<text class="s" x="510" y="162" text-anchor="middle" dominant-baseline="central">Download direct</text></g>
 
-<line x1="532" y1="158" x2="568" y2="158" class="arr-g" marker-end="url(#ag)"/>
+<text class="nt" x="620" y="156">Fast + Private</text>
 
-<text class="lb" x="622" y="154" style="font-size:18px;fill:#3B6D11;font-weight:700" dominant-baseline="central">&#x2713;</text>
-<text class="nt" x="622" y="172">Delivered</text>
+<!-- Separator 2 -->
+<line x1="50" y1="196" x2="630" y2="196" class="sep"/>
+
+<!-- Row 3: CDN Symmetric -->
+<text class="tt lb" x="340" y="218" style="fill:#D4760A">CDN Symmetric (maximum resilience)</text>
+
+<g class="c1"><rect x="20" y="230" width="120" height="44" rx="8"/>
+<text class="h" x="80" y="246" text-anchor="middle" dominant-baseline="central">Client</text>
+<text class="s" x="80" y="262" text-anchor="middle" dominant-baseline="central">All via Cloudflare</text></g>
+
+<line x1="142" y1="252" x2="248" y2="252" class="arr" marker-end="url(#a)"/>
+
+<g class="c6"><rect x="250" y="230" width="130" height="44" rx="8"/>
+<text class="h" x="315" y="246" text-anchor="middle" dominant-baseline="central">Cloudflare CDN</text>
+<text class="s" x="315" y="262" text-anchor="middle" dominant-baseline="central">Both directions</text></g>
+
+<line x1="382" y1="252" x2="448" y2="252" class="arr" marker-end="url(#a)"/>
+
+<g class="ok"><rect x="450" y="230" width="120" height="44" rx="8"/>
+<text class="h" x="510" y="246" text-anchor="middle" dominant-baseline="central">Exit</text>
+<text class="s" x="510" y="262" text-anchor="middle" dominant-baseline="central">XHTTP via Caddy</text></g>
+
+<text class="nt" x="620" y="256">Most resilient</text>
 </svg>
