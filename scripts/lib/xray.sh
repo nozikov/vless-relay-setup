@@ -64,7 +64,12 @@ configure_xray_exit() {
                 "network": "xhttp",
                 "xhttpSettings": {
                     "mode": "auto",
-                    "path": "/${xhttp_path}"
+                    "path": "/${xhttp_path}",
+                    "extra": {
+                        "xPaddingBytes": "100-1000",
+                        "scMaxEachPostBytes": 1000000,
+                        "scMaxBufferedPosts": 30
+                    }
                 },
                 "security": "reality",
                 "realitySettings": {
