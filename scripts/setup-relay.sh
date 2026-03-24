@@ -22,7 +22,7 @@ main() {
 
     echo "==========================================="
     echo "  VLESS Reality VPN — RELAY Server Setup"
-    echo "  (Russia / Entry point)  v${PROJECT_VERSION}"
+    echo "  (Entry Point Node)  v${PROJECT_VERSION}"
     echo "==========================================="
     echo ""
 

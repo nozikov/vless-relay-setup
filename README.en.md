@@ -2,6 +2,8 @@
 
 Multi-hop encrypted tunnel with TLS 1.3 masking. Automated deployment on two VPS nodes.
 
+> **Legal Notice:** This project is intended for lawful use cases only — corporate network segmentation, privacy research, and infrastructure redundancy. Users are solely responsible for compliance with applicable local laws and regulations.
+
 🇷🇺 [Русский](README.md)
 
 ## How It Works

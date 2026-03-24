@@ -22,7 +22,7 @@ main() {
 
     echo "==========================================="
     echo "  VLESS Reality VPN — EXIT Server Setup"
-    echo "  (Netherlands / Foreign server)  v${PROJECT_VERSION}"
+    echo "  (Exit Node)  v${PROJECT_VERSION}"
     echo "==========================================="
     echo ""
 
