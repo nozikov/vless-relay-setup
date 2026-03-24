@@ -173,8 +173,8 @@ main() {
         cdn_path=$(grep -oP '(?<=CDN_PATH=).+' "$sub_proxy_service") || true
         if [[ -z "$cdn_domain" ]]; then
             # Migration from old format: parse from VLESS URL
-            cdn_domain=$(grep -oP '(?<=CDN_VLESS_LINK=vless://[^@]+@)[^:]+' "$sub_proxy_service") || true
-            cdn_path=$(grep -oP '(?<=path=%%2F)[^&]+' "$sub_proxy_service") || true
+            cdn_domain=$(grep 'CDN_VLESS_LINK=' "$sub_proxy_service" | grep -oP '(?<=@)[^:]+' | head -1) || true
+            cdn_path=$(grep 'CDN_VLESS_LINK=' "$sub_proxy_service" | grep -oP '(?<=path=%%2F)[^&]+' | head -1) || true
         fi
 
         if [[ -n "$cdn_domain" && -n "$cdn_path" ]]; then
