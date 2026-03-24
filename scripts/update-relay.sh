@@ -167,6 +167,11 @@ main() {
     if [[ -f "$sub_proxy_service" ]] && systemctl is-active --quiet sub-proxy 2>/dev/null; then
         log_info "Updating CDN links in sub-proxy..."
 
+        # Update sub-proxy script from codebase
+        local script_dir
+        script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        install -m 0755 "$script_dir/lib/sub-proxy.py" /usr/local/bin/sub-proxy.py
+
         # Read CDN params — prefer dedicated env vars, fall back to old URL parsing
         local cdn_domain cdn_path
         cdn_domain=$(grep -oP '(?<=CDN_DOMAIN=).+' "$sub_proxy_service") || true
