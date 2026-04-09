@@ -67,8 +67,8 @@ configure_xray_exit() {
                     "path": "/${xhttp_path}",
                     "extra": {
                         "xPaddingBytes": "100-1000",
-                        "scMaxEachPostBytes": 1000000,
-                        "scMaxBufferedPosts": 30
+                        "scMaxEachPostBytes": 262144,
+                        "scMaxBufferedPosts": 10
                     }
                 },
                 "security": "reality",
@@ -138,8 +138,8 @@ XRAYEOF
                         path: ("/"+$cdn_path),
                         extra: {
                             xPaddingBytes: "100-1000",
-                            scMaxEachPostBytes: 1000000,
-                            scMaxBufferedPosts: 30
+                            scMaxEachPostBytes: 262144,
+                            scMaxBufferedPosts: 10
                         }
                     }
                 },
