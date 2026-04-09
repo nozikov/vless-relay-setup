@@ -28,6 +28,24 @@ verify_port_listening() {
     fi
 }
 
+verify_hysteria() {
+    local ok=true
+    verify_service_running hysteria-server "Hysteria 2" || ok=false
+
+    local port
+    port=$(grep -oP '(?<=^listen: :)\d+' /etc/hysteria/config.yaml 2>/dev/null) || true
+    if [[ -n "$port" ]]; then
+        if ss -ulnp | grep -q ":${port} "; then
+            log_ok "Hysteria 2 is listening on UDP port $port"
+        else
+            log_error "Hysteria 2 is NOT listening on UDP port $port"
+            ok=false
+        fi
+    fi
+
+    [[ "$ok" == true ]]
+}
+
 verify_exit_server() {
     local panel_port="$1"
     local selfsteal_domain="${2:-}"
@@ -49,6 +67,10 @@ verify_exit_server() {
 
     if [[ -n "$cdn_port" ]]; then
         verify_port_listening "$cdn_port" "CDN XHTTP (localhost)" || ok=false
+    fi
+
+    if [[ -f /etc/hysteria/config.yaml ]]; then
+        verify_hysteria || ok=false
     fi
 
     if [[ "$ok" == true ]]; then
