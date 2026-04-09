@@ -230,6 +230,7 @@ create_3xui_relay_inbound() {
     sub_id="${7:-$(head -c 8 /dev/urandom | xxd -p)}"
     local exit_ip="${8:-}"
     local xver="${9:-0}"
+    local relay_xhttp_path="${10}"
 
     # Build inbound name from geo IP (fallback: "Relay → Exit")
     local relay_city exit_city remark
@@ -268,8 +269,9 @@ create_3xui_relay_inbound() {
         --arg dest "$dest" \
         --arg server_name "$server_name" \
         --argjson xver "$xver" \
+        --arg relay_path "$relay_xhttp_path" \
         '{
-            network: "tcp",
+            network: "xhttp",
             security: "reality",
             realitySettings: {
                 show: false,
@@ -285,9 +287,9 @@ create_3xui_relay_inbound() {
                     spiderX: ""
                 }
             },
-            tcpSettings: {
-                acceptProxyProtocol: false,
-                header: { type: "none" }
+            xhttpSettings: {
+                path: ("/"+$relay_path),
+                mode: "auto"
             }
         }')
 
@@ -312,7 +314,7 @@ create_3xui_relay_inbound() {
         'inbound-443', '${s_sniffing}'
     );"
 
-    log_ok "VLESS Reality relay inbound created (port 443, tag inbound-443)"
+    log_ok "VLESS Reality XHTTP relay inbound created (port 443, tag inbound-443)"
     log_info "  Default client subId: $sub_id"
 }
 

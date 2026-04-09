@@ -252,13 +252,15 @@ main() {
     # Create relay inbound and xray template (all DB writes)
     local default_sub_id
     default_sub_id=$(head -c 8 /dev/urandom | xxd -p)
+    local relay_xhttp_path
+    relay_xhttp_path=$(generate_random_path)
 
     local xver=0
     [[ -n "$selfsteal_domain" ]] && xver=1
 
     create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
         "$REALITY_PUBLIC_KEY" "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-        "$default_sub_id" "$exit_ip" "$xver"
+        "$default_sub_id" "$exit_ip" "$xver" "$relay_xhttp_path"
 
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
         "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
@@ -303,7 +305,7 @@ main() {
     echo "==========================================="
     echo ""
     echo "  Server:    ${server_ip}"
-    echo "  Protocol:  VLESS + Reality (TCP) → Exit (XHTTP)"
+    echo "  Protocol:  VLESS + Reality (XHTTP) → Exit (XHTTP)"
     echo "  Port:      443"
     echo "  Exit:      ${exit_ip}"
     echo ""
