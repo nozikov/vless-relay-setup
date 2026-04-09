@@ -317,6 +317,9 @@ SVCEOF
     echo "==========================================="
     echo ""
     echo "  Template updated from latest codebase"
+    if [[ "$current_network" != "xhttp" ]]; then
+        echo "  Relay inbound migrated from TCP to XHTTP"
+    fi
     if [[ "$upgrade" == true ]]; then
         echo "  3X-UI upgraded to latest version"
     fi

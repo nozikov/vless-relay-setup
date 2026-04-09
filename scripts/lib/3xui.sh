@@ -230,7 +230,7 @@ create_3xui_relay_inbound() {
     sub_id="${7:-$(head -c 8 /dev/urandom | xxd -p)}"
     local exit_ip="${8:-}"
     local xver="${9:-0}"
-    local relay_xhttp_path="${10}"
+    local relay_xhttp_path="${10:-$(generate_random_path)}"
 
     # Build inbound name from geo IP (fallback: "Relay → Exit")
     local relay_city exit_city remark

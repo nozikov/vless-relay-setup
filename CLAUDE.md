@@ -101,7 +101,7 @@ See `patch_3xui_relay_inbound()` and `create_3xui_relay_inbound()` in `3xui.sh`.
 
 ### Update Scripts
 
-`update-exit.sh` reads current keys/UUID/dest/xver from XRAY config, regenerates config via `configure_xray_exit()`, restarts. `update-relay.sh` reads current exit params from DB, patches inbound sniffing (routeOnly) via jq, regenerates template via `configure_3xui_relay_template()`, restarts. Both create timestamped backups and auto-rollback on failure.
+`update-exit.sh` reads current keys/UUID/dest/xver from XRAY config, regenerates config via `configure_xray_exit()`, restarts. `update-relay.sh` reads current exit params from DB, patches inbound sniffing (routeOnly) via jq, auto-migrates TCP relay inbound to XHTTP if still on TCP (generates random path, patches stream_settings via jq), regenerates template via `configure_3xui_relay_template()`, restarts. Both create timestamped backups and auto-rollback on failure.
 
 Both update scripts detect SelfSteal mode (by checking if `dest` contains `caddy.sock`) and preserve it. They also detect the current SSH port from `sshd_config` and pass it through to `setup_security`. With `--upgrade`, Caddy is also updated in SelfSteal mode.
 
