@@ -338,11 +338,17 @@ main() {
                 log_info "Hysteria 2 link updated"
             fi
 
+            # URL-encoded XHTTP extra — sub-proxy injects into each relay VLESS URL
+            # since 3X-UI's built-in subscription generator does not emit extra=.
+            local relay_extra_encoded
+            relay_extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$extra_json")
+
             # Escape % for systemd
             local link_escaped="${cdn_vless_link//%/%%}"
             local link_asym_escaped="${cdn_vless_link_asym//%/%%}"
             local direct_escaped="${direct_vless_link//%/%%}"
             local hysteria_escaped="${hysteria_link//%/%%}"
+            local relay_extra_escaped="${relay_extra_encoded//%/%%}"
 
             # Read existing service params
             local sub_upstream sub_proxy_port
@@ -366,6 +372,7 @@ Environment=HYSTERIA_PORT_END=${hy_port_end}
 Environment=HYSTERIA_OBFS=${hy_obfs}
 Environment=CDN_DOMAIN=${cdn_domain}
 Environment=CDN_PATH=${cdn_path}
+Environment=RELAY_XHTTP_EXTRA=${relay_extra_escaped}
 Environment=SUB_UPSTREAM=${sub_upstream}
 Environment=SUB_PROXY_PORT=${sub_proxy_port}
 ExecStart=${exec_start}

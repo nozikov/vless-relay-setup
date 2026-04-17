@@ -249,8 +249,14 @@ main() {
                 hysteria_link="hysteria2://${exit_uuid}@${exit_ip}:${hysteria_port},${hysteria_port}-${hysteria_port_end}/?obfs=salamander&obfs-password=${hysteria_obfs}&sni=${exit_sni}&insecure=0#Hysteria%202"
             fi
 
+            # URL-encoded XHTTP extra — sub-proxy injects into each relay VLESS URL
+            # since 3X-UI's built-in subscription generator does not emit extra=.
+            local relay_extra_json relay_extra_encoded
+            relay_extra_json=$(xhttp_extra_json)
+            relay_extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$relay_extra_json")
+
             sub_proxy_port=$((sub_port + 1))
-            setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port" "$cdn_domain" "$cdn_path" "$cdn_vless_link_asym" "$direct_vless_link" "$hysteria_link" "$hysteria_port" "$hysteria_port_end" "$hysteria_obfs"
+            setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port" "$cdn_domain" "$cdn_path" "$cdn_vless_link_asym" "$direct_vless_link" "$hysteria_link" "$hysteria_port" "$hysteria_port_end" "$hysteria_obfs" "$relay_extra_encoded"
             caddy_sub_port="$sub_proxy_port"
         fi
 
