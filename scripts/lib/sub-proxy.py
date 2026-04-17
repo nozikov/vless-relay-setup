@@ -210,6 +210,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body if isinstance(body, bytes) else body.encode())
 
+    # HEAD is used by some clients for conditional refresh (304 probing).
+    # http.server drops the body automatically when method=HEAD.
+    do_HEAD = do_GET
+
     def log_message(self, fmt, *args):
         pass  # silent
 
