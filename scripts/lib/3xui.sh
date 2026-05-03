@@ -38,6 +38,27 @@ install_3xui() {
     fi
 }
 
+# In SelfSteal mode Caddy owns all certs (its own + copied to Hysteria),
+# so the acme.sh cron installed by 3X-UI's installer just spams the log
+# with "port 80 already used by caddy" once a day. Drop it.
+# Best-effort: if the operator runs acme.sh for unrelated sites on the same
+# box, restore via `~/.acme.sh/acme.sh --install-cronjob`.
+disable_acme_cron() {
+    local acme="/root/.acme.sh/acme.sh"
+    [[ -f "$acme" ]] || return 0
+
+    # Skip if the cron entry isn't there (avoids a noisy log line on re-runs)
+    if ! crontab -l 2>/dev/null | grep -q 'acme.sh --cron'; then
+        return 0
+    fi
+
+    if "$acme" --uninstall-cronjob > /dev/null 2>&1; then
+        log_ok "Disabled acme.sh cron (Caddy handles certs in SelfSteal mode)"
+    else
+        log_warn "acme.sh --uninstall-cronjob failed; cron may still fire on :80"
+    fi
+}
+
 # Set a key-value pair in x-ui settings database
 xui_db_set() {
     local key="${1//\'/\'\'}"

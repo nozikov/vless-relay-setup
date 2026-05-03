@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/xray.sh"
+source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/hysteria.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
@@ -140,6 +141,11 @@ main() {
         restart_xray || { log_error "Rollback also failed"; exit 1; }
         log_ok "Previous config restored, XRAY is running"
         exit 1
+    fi
+
+    # 3X-UI installer leaves an acme.sh cron behind that conflicts with Caddy on :80
+    if [[ "$is_selfsteal" == true ]]; then
+        disable_acme_cron
     fi
 
     # Regenerate Caddyfile if SelfSteal + CDN (routing changed from WS to XHTTP)

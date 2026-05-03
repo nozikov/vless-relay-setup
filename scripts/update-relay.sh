@@ -141,6 +141,11 @@ main() {
         fi
     fi
 
+    # 3X-UI installer leaves an acme.sh cron behind that conflicts with Caddy on :80
+    if [[ "$is_selfsteal" == true ]]; then
+        disable_acme_cron
+    fi
+
     # --- Step 5: Update xray template ---
     log_info "=== Updating XRAY Template ==="
 
