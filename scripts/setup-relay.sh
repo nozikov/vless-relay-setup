@@ -265,6 +265,7 @@ main() {
             "$sub_domain" "$caddy_sub_port"
         start_caddy
         setup_caddy_systemd_dependency "x-ui"
+        disable_acme_cron
     else
         # Non-SelfSteal: existing flow
         if [[ -n "$domain" ]]; then

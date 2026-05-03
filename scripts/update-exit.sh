@@ -142,6 +142,11 @@ main() {
         exit 1
     fi
 
+    # 3X-UI installer leaves an acme.sh cron behind that conflicts with Caddy on :80
+    if [[ "$is_selfsteal" == true ]]; then
+        disable_acme_cron
+    fi
+
     # Regenerate Caddyfile if SelfSteal + CDN (routing changed from WS to XHTTP)
     if [[ "$is_selfsteal" == true && "$is_cdn" == true ]]; then
         local cdn_domain

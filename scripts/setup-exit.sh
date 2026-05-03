@@ -161,6 +161,7 @@ main() {
     if [[ -n "$selfsteal_domain" ]]; then
         start_caddy
         setup_caddy_systemd_dependency "xray"
+        disable_acme_cron
     fi
 
     # --- Hysteria 2 (optional, requires SelfSteal) ---
