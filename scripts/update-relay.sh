@@ -29,6 +29,8 @@ main() {
     echo ""
 
     check_root
+    enable_bbr
+    raise_service_nofile
 
     # Backup 3X-UI database before any changes
     local backup_path

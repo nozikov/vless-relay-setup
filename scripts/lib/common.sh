@@ -153,6 +153,49 @@ xhttp_extra_json() {
     }'
 }
 
+# Both tune functions must be called BEFORE any service restart in the script —
+# raise_service_nofile applies on next service start, so existing restarts later
+# in update-*.sh pick up the new limit naturally without a second restart.
+enable_bbr() {
+    local current
+    current=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)
+    if [[ "$current" == "bbr" ]]; then
+        log_ok "BBR already active"
+        return 0
+    fi
+
+    cat > /etc/sysctl.d/99-vpn-bbr.conf <<'SYSCTL'
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+SYSCTL
+
+    sysctl --system >/dev/null || true
+
+    current=$(sysctl -n net.ipv4.tcp_congestion_control 2>/dev/null || true)
+    if [[ "$current" == "bbr" ]]; then
+        log_ok "BBR enabled (TCP congestion control + fq qdisc)"
+    else
+        log_warn "BBR not applied (kernel module missing?) — current: ${current:-unknown}"
+    fi
+}
+
+raise_service_nofile() {
+    local conf=/etc/systemd/system.conf.d/99-vpn-limits.conf
+    if [[ -f "$conf" ]] && grep -q '^DefaultLimitNOFILE=65535$' "$conf"; then
+        log_ok "systemd nofile limit already 65535"
+        return 0
+    fi
+
+    mkdir -p /etc/systemd/system.conf.d
+    cat > "$conf" <<'LIMITS'
+[Manager]
+DefaultLimitNOFILE=65535
+LIMITS
+
+    systemctl daemon-reexec
+    log_ok "systemd nofile limit set to 65535 (applies on next service start)"
+}
+
 install_dependencies() {
     log_info "Installing dependencies..."
     apt-get update -qq

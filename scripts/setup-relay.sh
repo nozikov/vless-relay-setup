@@ -28,6 +28,8 @@ main() {
 
     check_root
     check_os
+    enable_bbr
+    raise_service_nofile
 
     # Guard: prevent accidental re-setup on a configured server
     if [[ -f /etc/x-ui/x-ui.db ]] && [[ "$force" != true ]]; then

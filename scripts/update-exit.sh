@@ -29,6 +29,8 @@ main() {
     echo ""
 
     check_root
+    enable_bbr
+    raise_service_nofile
 
     # --- Step 1: Validate existing installation ---
     log_info "=== Checking existing installation ==="
