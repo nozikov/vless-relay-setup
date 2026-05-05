@@ -29,6 +29,8 @@ main() {
 
     check_root
     check_os
+    enable_bbr
+    raise_service_nofile
 
     # Guard: prevent accidental re-setup on a configured server
     if [[ -f /usr/local/etc/xray/config.json ]] && [[ "$force" != true ]]; then
