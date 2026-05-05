@@ -131,9 +131,23 @@ XRAYEOF
     mkdir -p /var/log/xray
     log_ok "XRAY exit config written"
 
+    # Merge Reality fallback rate-limits into the inbound. Throttles only
+    # fallback traffic (probes, casual visitors hitting the masquerade site);
+    # authenticated VPN clients passing the Reality handshake are not affected.
+    local lf_json tmp_config
+    lf_json=$(reality_limit_fallback_json)
+    if ! tmp_config=$(jq \
+        --argjson lf "$lf_json" \
+        '.inbounds[0].streamSettings.realitySettings += $lf' \
+        /usr/local/etc/xray/config.json); then
+        log_error "Failed to merge Reality limitFallback (jq error)"
+        exit 1
+    fi
+    echo "$tmp_config" > /usr/local/etc/xray/config.json
+
     if [[ -n "$cdn_port" && -n "$cdn_path" ]]; then
         log_info "Adding CDN XHTTP inbound on 127.0.0.1:${cdn_port}..."
-        local tmp_config cdn_extra_json
+        local cdn_extra_json
         cdn_extra_json=$(xhttp_extra_json)
         if ! tmp_config=$(jq \
             --argjson cdn_port "$cdn_port" \
@@ -178,6 +192,14 @@ disable_system_xray() {
 }
 
 restart_xray() {
+    # Validate config before restart — catches schema errors (e.g., binary too old
+    # for limitFallback) explicitly instead of leaving xray in a failed state.
+    if ! xray -test -config /usr/local/etc/xray/config.json >/dev/null 2>&1; then
+        log_error "xray config validation failed:"
+        xray -test -config /usr/local/etc/xray/config.json || true
+        return 1
+    fi
+
     systemctl restart xray
     systemctl enable xray
 

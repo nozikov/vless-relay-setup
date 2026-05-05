@@ -209,25 +209,30 @@ main() {
         log_ok "Relay inbound migrated from TCP to XHTTP"
     fi
 
-    # Idempotent patch of XHTTP extra on existing installs (already on XHTTP before this run).
-    # Ensures current recommended values are applied on every update — needed for
-    # TSPU TLS-policing resistance on client→relay leg (XTLS issue #5332).
-    local current_inbound_stream updated_inbound_stream
+    # Idempotent patch of XHTTP extra + Reality limitFallback on existing installs
+    # (already on XHTTP before this run). Ensures current recommended values are
+    # applied on every update — XHTTP extra needed for TSPU TLS-policing resistance
+    # on client→relay leg (XTLS issue #5332); limitFallback throttles probe traffic
+    # hitting the Reality fallback for anti-fingerprint.
+    local current_inbound_stream updated_inbound_stream lf_json
+    lf_json=$(reality_limit_fallback_json)
     current_inbound_stream=$(sqlite3 "$XUI_DB" \
         "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';") || true
     if [[ -n "$current_inbound_stream" && \
           "$(echo "$current_inbound_stream" | jq -r '.network')" == "xhttp" ]]; then
         updated_inbound_stream=$(echo "$current_inbound_stream" | jq -c \
             --argjson extra "$extra_json" \
-            '.xhttpSettings.extra = $extra')
+            --argjson lf "$lf_json" \
+            '.xhttpSettings.extra = $extra
+            | .realitySettings += $lf')
         if [[ -z "$updated_inbound_stream" ]]; then
-            log_error "jq failed to patch XHTTP extra on inbound (input malformed?)"
+            log_error "jq failed to patch XHTTP extra/limitFallback on inbound (input malformed?)"
             exit 1
         fi
         local s_inbound_stream="${updated_inbound_stream//\'/\'\'}"
         sqlite3 "$XUI_DB" \
             "UPDATE inbounds SET stream_settings='${s_inbound_stream}' WHERE tag='inbound-443';"
-        log_ok "XHTTP inbound extra block patched (xmux + padding)"
+        log_ok "XHTTP inbound patched (extra block + Reality limitFallback)"
     fi
 
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \

@@ -286,8 +286,9 @@ create_3xui_relay_inbound() {
     # from realitySettings.settings (nested), not from the top level.
     # xhttpSettings.extra is emitted into VLESS subscription URLs (xmux etc
     # are client-side hints — server ignores them on inbound).
-    local extra_json
+    local extra_json lf_json
     extra_json=$(xhttp_extra_json)
+    lf_json=$(reality_limit_fallback_json)
 
     stream_settings=$(jq -n -c \
         --arg private_key "$private_key" \
@@ -298,10 +299,11 @@ create_3xui_relay_inbound() {
         --argjson xver "$xver" \
         --arg relay_path "$relay_xhttp_path" \
         --argjson extra "$extra_json" \
+        --argjson lf "$lf_json" \
         '{
             network: "xhttp",
             security: "reality",
-            realitySettings: {
+            realitySettings: ({
                 show: false,
                 dest: $dest,
                 xver: $xver,
@@ -314,7 +316,7 @@ create_3xui_relay_inbound() {
                     fingerprint: "chrome",
                     spiderX: ""
                 }
-            },
+            } + $lf),
             xhttpSettings: {
                 path: ("/"+$relay_path),
                 mode: "auto",
@@ -360,8 +362,9 @@ patch_3xui_relay_inbound() {
 
     log_info "Patching relay inbound subscription fields..."
 
-    local current_settings current_stream extra_json
+    local current_settings current_stream extra_json lf_json
     extra_json=$(xhttp_extra_json)
+    lf_json=$(reality_limit_fallback_json)
 
     # Re-add subId to client settings
     current_settings=$(sqlite3 "$XUI_DB" \
@@ -378,20 +381,26 @@ patch_3xui_relay_inbound() {
     sqlite3 "$XUI_DB" \
         "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-443';"
 
-    # Re-add realitySettings.settings (publicKey + fingerprint for subscription URLs)
-    # Also re-add xhttpSettings.extra (xmux + padding) — 3X-UI may strip it on first normalize
+    # Re-add realitySettings.settings (publicKey + fingerprint for subscription URLs).
+    # Re-add xhttpSettings.extra (xmux + padding) — 3X-UI may strip it on first normalize.
+    # Re-add realitySettings.limitFallback{Upload,Download} — non-standard for 3X-UI UI,
+    # likely stripped on normalize. Idempotent: if not stripped, re-set is a no-op.
+    # Note: `.realitySettings += $lf` is shallow merge — adds only limitFallback keys,
+    # preserves .realitySettings.settings set in the same pipeline.
     current_stream=$(sqlite3 "$XUI_DB" \
         "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';")
     local patched_stream
     patched_stream=$(echo "$current_stream" | jq -c \
         --arg public_key "$public_key" \
         --argjson extra "$extra_json" \
+        --argjson lf "$lf_json" \
         '.realitySettings.settings = {
             publicKey: $public_key,
             fingerprint: "chrome",
             spiderX: ""
         }
-        | .xhttpSettings.extra = $extra')
+        | .xhttpSettings.extra = $extra
+        | .realitySettings += $lf')
     if [[ -z "$patched_stream" ]]; then
         log_error "jq failed to patch stream settings (input may be malformed)"
         exit 1
@@ -400,7 +409,7 @@ patch_3xui_relay_inbound() {
     sqlite3 "$XUI_DB" \
         "UPDATE inbounds SET stream_settings='${s_stream}' WHERE tag='inbound-443';"
 
-    log_ok "Relay inbound patched (subId + publicKey + XHTTP extra for subscriptions)"
+    log_ok "Relay inbound patched (subId + publicKey + XHTTP extra + Reality limitFallback)"
 }
 
 configure_3xui_subscription() {

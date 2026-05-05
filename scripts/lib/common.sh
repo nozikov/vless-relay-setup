@@ -153,6 +153,31 @@ xhttp_extra_json() {
     }'
 }
 
+# Single source of truth for Reality fallback rate limits (server-side).
+# Throttles only fallback traffic — real VPN clients passing the Reality
+# handshake are NOT affected. Probes/visitors hitting the masquerade site
+# get a "cheap-VPS-like" speed profile: full 5 MB burst, then 256 KB/s.
+# Values match autoXRAY community baseline (xVRVx/autoXRAY).
+# Used in:
+#   - exit Reality inbound (xray.sh::configure_xray_exit)
+#   - relay Reality inbound (3xui.sh::create_3xui_relay_inbound)
+#   - relay re-add after 3X-UI normalize (3xui.sh::patch_3xui_relay_inbound)
+#   - update-relay.sh in-place merge into existing DB row
+reality_limit_fallback_json() {
+    jq -n -c '{
+        limitFallbackUpload: {
+            afterBytes: 0,
+            bytesPerSec: 65536,
+            burstBytesPerSec: 0
+        },
+        limitFallbackDownload: {
+            afterBytes: 5242880,
+            bytesPerSec: 262144,
+            burstBytesPerSec: 2097152
+        }
+    }'
+}
+
 # Both tune functions must be called BEFORE any service restart in the script —
 # raise_service_nofile applies on next service start, so existing restarts later
 # in update-*.sh pick up the new limit naturally without a second restart.
