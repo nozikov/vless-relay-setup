@@ -271,6 +271,7 @@ setup_sub_proxy() {
     mkdir -p /etc/sub-proxy
     install -m 0644 "$script_dir/templates/sr-module-ru.sgmodule" /etc/sub-proxy/sr-module-ru.sgmodule
     install -m 0644 "$script_dir/templates/happ-routing-ru.json" /etc/sub-proxy/happ-routing-ru.json
+    install -m 0644 "$script_dir/templates/share-page.html" /etc/sub-proxy/share-page.html
 
     # Escape % for systemd (% is a specifier prefix in unit files)
     local escaped_link="${cdn_vless_link//%/%%}"
