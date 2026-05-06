@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Доступ к VPN</title>
+<style>
+* { box-sizing: border-box; }
+body {
+    margin: 0 auto;
+    padding: 24px 16px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0d1117;
+    color: #e6edf3;
+    line-height: 1.5;
+    min-height: 100vh;
+    max-width: 480px;
+}
+h1 {
+    font-size: 28px;
+    text-align: center;
+    margin: 8px 0 24px;
+    font-weight: 600;
+}
+.qr-wrap {
+    background: #fff;
+    padding: 16px;
+    border-radius: 16px;
+    margin: 0 auto 24px;
+    width: fit-content;
+}
+.qr-wrap canvas { display: block; }
+.btn {
+    display: block;
+    text-align: center;
+    padding: 14px 20px;
+    margin-bottom: 10px;
+    border-radius: 12px;
+    background: #21262d;
+    color: #e6edf3;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 16px;
+    border: 1px solid #30363d;
+}
+.btn-primary {
+    background: #1f6feb;
+    border-color: #1f6feb;
+    color: #fff;
+}
+.btn:active { opacity: 0.7; }
+ol {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    padding: 16px 16px 16px 36px;
+    margin: 24px 0;
+}
+ol li { margin-bottom: 8px; }
+ol li:last-child { margin-bottom: 0; }
+.copy-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 16px;
+}
+.copy-row input {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    background: #0d1117;
+    color: #8b949e;
+    border: 1px solid #30363d;
+    font-size: 12px;
+    font-family: monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+.copy-btn {
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: #21262d;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.copy-btn:active { opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<h1>Доступ к VPN</h1>
+
+<div class="qr-wrap">
+  <canvas id="qr" width="280" height="280"></canvas>
+</div>
+
+<a class="btn btn-primary" href="{{HAPP_DEEPLINK}}">Открыть в Happ</a>
+<a class="btn" href="{{V2RAYTUN_DEEPLINK}}">Открыть в v2rayTun</a>
+<a class="btn" href="{{SHADOWROCKET_DEEPLINK}}">Открыть в Shadowrocket (iOS)</a>
+
+<ol>
+  <li>Установи Happ из App Store или Google Play (или другой клиент).</li>
+  <li>Нажми кнопку выше или отсканируй QR.</li>
+  <li>Включи VPN внутри приложения.</li>
+</ol>
+
+<div class="copy-row">
+  <input id="sub-url" type="text" readonly value="{{SUBSCRIPTION_URL_HTML}}">
+  <button class="copy-btn" id="copy-btn">Скопировать</button>
+</div>
+
+<script>
+const subUrl = {{SUBSCRIPTION_URL_JSON}};
+
+document.getElementById('copy-btn').addEventListener('click', async function() {
+    try {
+        await navigator.clipboard.writeText(subUrl);
+        const btn = this;
+        const orig = btn.textContent;
+        btn.textContent = 'Скопировано ✓';
+        setTimeout(() => { btn.textContent = orig; }, 2000);
+    } catch (e) {
+        document.getElementById('sub-url').select();
+    }
+});
+
+// QR: placeholder — заменим в Task 2
+(function() {
+    const ctx = document.getElementById('qr').getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 280, 280);
+    ctx.fillStyle = '#000';
+    ctx.font = '16px sans-serif';
+    ctx.fillText('QR pending', 100, 140);
+})();
+</script>
+
+</body>
+</html>
