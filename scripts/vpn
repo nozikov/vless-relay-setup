@@ -163,7 +163,22 @@ cmd_list() {
         done
     } | column -t -s$'\t'
 }
-cmd_link()   { log_error "not implemented yet"; exit 1; }
+cmd_link() {
+    local name="${1:-}"
+    if [[ -z "$name" ]]; then log_error "Usage: vpn link <name>"; exit 1; fi
+
+    local sub_id
+    sub_id=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
+        | jq -r --arg name "$name" '.clients[] | select(.email == $name) | .subId') || true
+    if [[ -z "$sub_id" || "$sub_id" == "null" ]]; then
+        log_error "Client '$name' not found"
+        exit 1
+    fi
+
+    local prefix
+    prefix=$(get_subscription_prefix)
+    echo "${prefix}${sub_id}"
+}
 cmd_remove() { log_error "not implemented yet"; exit 1; }
 
 main() {
