@@ -1,0 +1,62 @@
+#!/bin/bash
+# vpn — CLI для управления клиентами VPN на relay-сервере (issue #23)
+# Команды: add / list / link / remove / help
+
+set -euo pipefail
+
+# Resolve real script path (через симлинк)
+SCRIPT_REAL="$(readlink -f "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"
+
+# shellcheck source=lib/common.sh
+source "$SCRIPT_DIR/lib/common.sh"
+# shellcheck source=lib/3xui.sh
+source "$SCRIPT_DIR/lib/3xui.sh"
+
+XUI_DB="/etc/x-ui/x-ui.db"
+INBOUND_TAG="inbound-443"
+NAME_REGEX='^[a-zA-Z0-9_-]{1,32}$'
+
+usage() {
+    cat <<EOF
+vpn — управление клиентами VPN на relay-сервере
+
+Usage:
+  vpn add <name>            создать клиента, напечатать ссылку на подписку
+  vpn list                  таблица клиентов
+  vpn link <name>           напечатать ссылку на подписку клиента
+  vpn remove <name> [-f]    удалить клиента (с подтверждением; -f скипает)
+  vpn help                  эта справка
+
+<name>: [a-zA-Z0-9_-]{1,32}, должно быть уникальным
+EOF
+}
+
+require_relay() {
+    if [[ ! -f "$XUI_DB" ]]; then
+        log_error "vpn CLI is for relay servers only ($XUI_DB not found)"
+        exit 1
+    fi
+}
+
+# Заглушки команд — реализация в следующих тасках
+cmd_add()    { log_error "not implemented yet"; exit 1; }
+cmd_list()   { log_error "not implemented yet"; exit 1; }
+cmd_link()   { log_error "not implemented yet"; exit 1; }
+cmd_remove() { log_error "not implemented yet"; exit 1; }
+
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        add)    require_relay; cmd_add "$@" ;;
+        list)   require_relay; cmd_list "$@" ;;
+        link)   require_relay; cmd_link "$@" ;;
+        remove) require_relay; cmd_remove "$@" ;;
+        help|-h|--help) usage ;;
+        *)      log_error "Unknown command: $cmd"; usage; exit 1 ;;
+    esac
+}
+
+main "$@"
