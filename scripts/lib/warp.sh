@@ -20,6 +20,15 @@ install_warp() {
         return 0
     fi
 
+    # Cleanup half-installed apt state on any error during install.
+    # Function is invoked via trap — shellcheck can't see that.
+    # shellcheck disable=SC2329
+    _warp_install_cleanup() {
+        log_warn "WARP install failed — cleaning up apt state"
+        rm -f "$WARP_APT_LIST" "$WARP_KEYRING"
+    }
+    trap _warp_install_cleanup ERR
+
     curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
         | gpg --dearmor > "$WARP_KEYRING"
 
@@ -36,6 +45,8 @@ install_warp() {
 
     apt-get update -qq
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cloudflare-warp
+
+    trap - ERR
 
     systemctl enable --now warp-svc
 

@@ -175,6 +175,11 @@ XRAYEOF
 
     if [[ "$warp_enabled" == "Y" ]]; then
         log_info "Adding WARP outbound for AI services (issue #35)..."
+        # XRAY evaluates routing.rules top-to-bottom and stops at first match.
+        # WARP rule is PREPENDED so AI domains short-circuit before geoip:private.
+        # DO NOT reorder — putting WARP after geoip:private would let AI domains
+        # resolving to private IPs (edge-case: self-hosted AI gateways) be blocked
+        # instead of routed via WARP. Sniffing on inbound emits SNI/Host for domain match.
         local warp_config
         if ! warp_config=$(jq \
             --argjson port 40000 \

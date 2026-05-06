@@ -104,21 +104,28 @@ main() {
         warp_enabled="Y"
     fi
 
+    # warp_pending_disable=true means warp-cli/warp-svc must be stopped AFTER
+    # successful xray restart (prevents broken state if restart_xray rolls back
+    # to a backup that still references the warp outbound).
+    local warp_pending_disable=false
+
     if [[ "$enable_warp" == true ]]; then
-        if [[ "$warp_enabled" == "Y" ]]; then
-            log_info "WARP already enabled, --enable-warp is no-op"
-        else
-            log_info "Enabling WARP outbound (--enable-warp)..."
-            install_warp
+        log_info "Enabling WARP outbound (--enable-warp)..."
+        install_warp
+        # Always ensure warp-svc + socks5 listener are healthy on --enable-warp
+        # (idempotent — handles case where flag was set before but daemon died).
+        if ! is_warp_running; then
             configure_warp
-            warp_enabled="Y"
+        else
+            log_info "WARP already running, skipping reconfigure"
         fi
+        warp_enabled="Y"
     elif [[ "$disable_warp" == true ]]; then
         if [[ "$warp_enabled" == "N" ]]; then
             log_info "WARP not enabled, --disable-warp is no-op"
         else
-            log_info "Disabling WARP outbound (--disable-warp)..."
-            warp-cli disconnect 2>/dev/null || true
+            log_info "Disabling WARP outbound (--disable-warp) — warp-svc will stop after xray restart"
+            warp_pending_disable=true
             warp_enabled="N"
         fi
     elif [[ "$warp_enabled" == "Y" ]]; then
@@ -193,6 +200,15 @@ main() {
         restart_xray || { log_error "Rollback also failed"; exit 1; }
         log_ok "Previous config restored, XRAY is running"
         exit 1
+    fi
+
+    # Stop WARP only AFTER successful xray restart — otherwise a config rollback
+    # leaves xray referencing a disconnected WARP socks5 listener.
+    if [[ "$warp_pending_disable" == true ]]; then
+        log_info "Stopping warp-svc and disconnecting WARP..."
+        warp-cli disconnect 2>/dev/null || true
+        systemctl stop warp-svc 2>/dev/null || true
+        log_ok "WARP daemon stopped (package preserved — use uninstall --purge-warp to remove)"
     fi
 
     # 3X-UI installer leaves an acme.sh cron behind that conflicts with Caddy on :80

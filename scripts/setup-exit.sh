@@ -126,7 +126,7 @@ main() {
 
     # WARP outbound for AI services (issue #35) — opt-in, default N
     local warp_enabled="N" warp_choice
-    prompt_input "Enable WARP outbound for AI services (ChatGPT/Claude/Gemini/Cursor)? [y/N]" warp_choice "N"
+    prompt_input "Enable WARP outbound for AI services (ChatGPT/Claude/Gemini/Cursor)?" warp_choice "N"
     case "$warp_choice" in
         [Yy]*) warp_enabled="Y" ;;
     esac
