@@ -281,6 +281,9 @@ EOF
     fi
     echo "  Security re-applied"
     echo ""
+    echo "  Next: run 'update-relay' on every relay within ~30s to minimise"
+    echo "        outage for relay-routed clients (see issue #33)."
+    echo ""
 }
 
 LOG_FILE="/var/log/vpn-setup-$(basename "$0" .sh)-$(date +%Y%m%d-%H%M%S).log"

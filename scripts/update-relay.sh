@@ -236,6 +236,9 @@ main() {
 
     if echo "$template" | jq -e '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings' > /dev/null 2>&1; then
         log_info "Migrating proxy-exit outbound XHTTP → RAW + xtls-rprx-vision (issue #33)"
+        log_warn "  This relay will speak Vision to ${exit_ip}:${exit_port}."
+        log_warn "  Make sure 'update-exit' has ALREADY been run on the exit server,"
+        log_warn "  otherwise relay-routed clients will fail until exit is migrated."
     else
         log_info "proxy-exit outbound already on RAW + Vision, regenerating template"
     fi
@@ -245,18 +248,33 @@ main() {
 
     x-ui start
 
-    if ! systemctl is-active --quiet x-ui; then
-        log_warn "3X-UI failed to start, restoring backup..."
+    # 3X-UI itself running ≠ xray inside it healthy. Bad template can leave x-ui up
+    # while xray fails to bind. Wait briefly, then probe port 443.
+    local xray_healthy=false
+    if systemctl is-active --quiet x-ui; then
+        for _ in 1 2 3 4 5; do
+            sleep 1
+            if ss -tln 2>/dev/null | grep -qE ':443\s'; then
+                xray_healthy=true
+                break
+            fi
+        done
+    fi
+
+    if [[ "$xray_healthy" != true ]]; then
+        log_warn "3X-UI/xray failed to bind :443 — restoring DB backup..."
+        x-ui stop || true
         cp "$backup_path" "$XUI_DB"
         x-ui start
-        if systemctl is-active --quiet x-ui; then
+        sleep 3
+        if systemctl is-active --quiet x-ui && ss -tln 2>/dev/null | grep -qE ':443\s'; then
             log_ok "Previous database restored, 3X-UI is running"
         else
             log_error "Rollback also failed. Check: x-ui log"
         fi
         exit 1
     fi
-    log_ok "3X-UI restarted with updated template"
+    log_ok "3X-UI restarted with updated template (xray bound :443)"
 
     # --- Step 5b: Update extra links in sub-proxy if active ---
     local sub_proxy_service="/etc/systemd/system/sub-proxy.service"
@@ -361,6 +379,11 @@ main() {
             sub_upstream=$(grep -oP '(?<=SUB_UPSTREAM=).+' "$sub_proxy_service") || true
             sub_proxy_port=$(grep -oP '(?<=SUB_PROXY_PORT=).+' "$sub_proxy_service") || true
 
+            # Backup before rewriting — restore on regen failure
+            local sub_proxy_backup
+            sub_proxy_backup="${sub_proxy_service}.bak.$(date +%Y%m%d-%H%M%S)"
+            cp "$sub_proxy_service" "$sub_proxy_backup"
+
             # Rewrite entire service file (never sed — & in URLs breaks sed)
             cat > "$sub_proxy_service" << SVCEOF
 [Unit]
@@ -390,7 +413,21 @@ WantedBy=multi-user.target
 SVCEOF
             systemctl daemon-reload
             systemctl restart sub-proxy
-            log_ok "Sub-proxy updated"
+            sleep 2
+            if systemctl is-active --quiet sub-proxy; then
+                log_ok "Sub-proxy updated"
+            else
+                log_warn "Sub-proxy failed to start, restoring backup..."
+                cp "$sub_proxy_backup" "$sub_proxy_service"
+                systemctl daemon-reload
+                systemctl restart sub-proxy || true
+                if systemctl is-active --quiet sub-proxy; then
+                    log_ok "Previous sub-proxy.service restored"
+                else
+                    log_error "Sub-proxy rollback also failed. Check: journalctl -u sub-proxy"
+                fi
+                exit 1
+            fi
         fi
     fi
 
@@ -441,6 +478,10 @@ SVCEOF
     if [[ -n "$arg_hy_port" ]]; then
         echo "  Hysteria 2 link added to subscriptions"
     fi
+    echo ""
+    echo "  Tell users to refresh the subscription URL in their VPN client —"
+    echo "  cached Direct Exit / CDN-asymmetric links from before v1.10.0 will"
+    echo "  not work after the Vision migration (see issue #33)."
     echo ""
 }
 
