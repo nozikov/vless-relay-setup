@@ -271,7 +271,14 @@ setup_sub_proxy() {
     mkdir -p /etc/sub-proxy
     install -m 0644 "$script_dir/templates/sr-module-ru.sgmodule" /etc/sub-proxy/sr-module-ru.sgmodule
     install -m 0644 "$script_dir/templates/happ-routing-ru.json" /etc/sub-proxy/happ-routing-ru.json
-    install -m 0644 "$script_dir/templates/share-page.html" /etc/sub-proxy/share-page.html
+
+    # share-page.html: smoke-check шаблона перед install (placeholder'ы должны быть)
+    local share_src="$script_dir/templates/share-page.html"
+    if [[ ! -s "$share_src" ]] || ! grep -q '{{SUBSCRIPTION_URL_JSON}}' "$share_src"; then
+        log_error "share-page.html missing or invalid (no placeholders)"
+        return 1
+    fi
+    install -m 0644 "$share_src" /etc/sub-proxy/share-page.html
 
     # Escape % for systemd (% is a specifier prefix in unit files)
     local escaped_link="${cdn_vless_link//%/%%}"
@@ -310,7 +317,8 @@ SVCEOF
 
     systemctl daemon-reload
     systemctl enable sub-proxy
-    systemctl start sub-proxy
+    # restart, не start — на повторном setup (--force) подхватываем обновлённые шаблоны
+    systemctl restart sub-proxy
 
     if systemctl is-active --quiet sub-proxy; then
         log_ok "Subscription proxy running on 127.0.0.1:${proxy_port}"

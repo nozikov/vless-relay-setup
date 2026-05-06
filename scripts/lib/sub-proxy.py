@@ -118,8 +118,9 @@ def render_share_page(host, request_path):
     if not template:
         return None
 
-    canon_path = request_path.rstrip("/") or "/"
-    sub_url = f"https://{host}{canon_path}"
+    # Не стрипим trailing slash — 3X-UI subURI может его требовать,
+    # клиенты обязаны принимать оба варианта но проще не ломать canon-форму.
+    sub_url = f"https://{host}{request_path}"
 
     sub_url_b64 = base64.urlsafe_b64encode(sub_url.encode()).decode().rstrip("=")
     happ_link = "happ://add/" + sub_url_b64
@@ -185,17 +186,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
         accept = self.headers.get("Accept", "")
         is_browser = "text/html" in accept
 
-        # Browser → /<subPath>/<subId> → отдаём share-page вместо 3X-UI HTML
-        if is_browser and SHARE_PAGE_PATH_REGEX.match(self.path):
+        # Browser → /<subPath>/<subId> → отдаём share-page вместо 3X-UI HTML.
+        # Используем parsed.path (без query/fragment) для матчинга — иначе
+        # bookmark с ?refresh=1 проваливается мимо.
+        if is_browser and SHARE_PAGE_PATH_REGEX.match(parsed.path):
             host = self.headers.get("Host", "")
-            page = render_share_page(host, self.path)
+            page = render_share_page(host, parsed.path)
             if page is not None:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(page)))
                 self.send_header("Cache-Control", "no-store")
+                # Anti-leak: subId в URL не должен утечь в Referer
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header("X-Frame-Options", "DENY")
+                self.send_header("X-Content-Type-Options", "nosniff")
+                self.send_header("X-Robots-Tag", "noindex, nofollow")
                 self.end_headers()
-                self.wfile.write(page)
+                # BaseHTTPRequestHandler не подавляет body для HEAD автоматически
+                if self.command != "HEAD":
+                    self.wfile.write(page)
                 return
             # Если шаблон не загрузился — fallback на старое поведение (passthrough)
 

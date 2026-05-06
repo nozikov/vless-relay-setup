@@ -286,8 +286,10 @@ main() {
         script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
         install -m 0755 "$script_dir/lib/sub-proxy.py" /usr/local/bin/sub-proxy.py
         mkdir -p /etc/sub-proxy
-        install -m 0644 "$script_dir/lib/templates/sr-conf-ru.conf" /etc/sub-proxy/sr-conf-ru.conf 2>/dev/null || true
-        install -m 0644 "$script_dir/lib/templates/sr-conf-full.conf" /etc/sub-proxy/sr-conf-full.conf 2>/dev/null || true
+        # Refresh templates на existing relay'ях (issue #21 + cleanup стейлой sr-conf-*)
+        install -m 0644 "$script_dir/lib/templates/sr-module-ru.sgmodule" /etc/sub-proxy/sr-module-ru.sgmodule
+        install -m 0644 "$script_dir/lib/templates/happ-routing-ru.json" /etc/sub-proxy/happ-routing-ru.json
+        install -m 0644 "$script_dir/lib/templates/share-page.html" /etc/sub-proxy/share-page.html
 
         # Read CDN params — prefer dedicated env vars, fall back to old URL parsing
         local cdn_domain cdn_path
