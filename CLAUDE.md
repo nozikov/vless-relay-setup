@@ -205,6 +205,20 @@ All setup/update scripts wrap `main` with `tee` to `/var/log/vpn-setup-<script>-
 
 Не реализовано (out of scope для v1.10.0): `--notify` (Telegram), `--cron` flag, log scanning, JSON output. Если понадобится cron — пользователь добавляет crontab напрямую.
 
+### vpn CLI (issue #23, v1.10.0+)
+
+`scripts/vpn` — bash-CLI на relay для add/list/link/remove клиентов 3X-UI. Симлинк `/usr/local/bin/vpn` ставится в `setup-relay` и `update-relay`, удаляется в `uninstall`.
+
+Под капотом — паттерн `x-ui stop / sqlite3+jq / x-ui start` (как в `patch_3xui_relay_inbound`), `sync_cdn_clients()` после add/remove, auto-rollback по health check `:443` через `ss -tln` (логика идентична `update-relay.sh`).
+
+Защита от сноса `default-user`: это seed-клиент, без него CDN sync ломается. Имена валидируются regex'ом `^[a-zA-Z0-9_-]{1,32}$`.
+
+Read-only команды (`list`, `link`) не делают `x-ui stop` — конкурентность с админом в веб-панели не страшна (мы только читаем).
+
+`get_subscription_prefix()` читает `subURI` из `settings` table (выставлен в SelfSteal+CDN режиме); fallback — конструирует `https://${subDomain or ifconfig.me}:${subPort}${subPath}` для plain-режима.
+
+На exit-сервере (нет `/etc/x-ui/x-ui.db`) — error «for relay only» и exit 1. Симлинк там не ставится.
+
 ### Versioning
 
 `VERSION` file in repo root is the single source of truth. `common.sh` reads it into `PROJECT_VERSION`. All scripts display version in their banner. Bump version only when script behavior changes (not for docs/README changes).

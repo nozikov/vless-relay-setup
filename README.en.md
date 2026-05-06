@@ -323,6 +323,20 @@ Returns exit code `1` if anything is broken — convenient for cron:
 0 * * * * root /path/to/setup.sh selfcheck >> /var/log/selfcheck.log 2>&1
 ```
 
+### Client management via CLI
+
+On the relay server, the `vpn` command is a bash wrapper around the 3X-UI database:
+
+```bash
+vpn add alice              # create client, print subscription URL
+vpn list                   # table: name | UUID | enable | traffic ↑↓
+vpn link alice             # print subscription URL for this client
+vpn remove alice           # delete (with confirmation; -f to skip)
+vpn help                   # this help
+```
+
+Changes show up in the web panel after refresh. CDN inbound is synced automatically. Auto-rollback if xray doesn't come back up after changes.
+
 ### Updating Configuration
 
 ```bash
