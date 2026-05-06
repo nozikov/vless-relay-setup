@@ -192,6 +192,19 @@ Lifecycle:
 
 All setup/update scripts wrap `main` with `tee` to `/var/log/vpn-setup-<script>-<timestamp>.log`. Exit code preserved via `PIPESTATUS[0]`.
 
+### Selfcheck (issue #22, v1.10.0+)
+
+`scripts/selfcheck.sh` — auto-detect role (exit/relay по `/usr/local/etc/xray/config.json` vs `/etc/x-ui/x-ui.db`) + extended verify. Запускается auto в конце setup-* / update-* (заменил собой `verify_exit_server` / `verify_relay_server` callsites). Manual: `./setup.sh selfcheck`. Exit code 1 если есть FAIL.
+
+Три блока проверок:
+1. **Local services** (через `lib/verify.sh`): xray/x-ui/caddy/hysteria/warp-svc/sub-proxy running, ports listening
+2. **System resources** (через `lib/selfcheck.sh`): cert expiry (<14 days = WARN, <7 = FAIL), disk >10% free, RAM >100MB free
+3. **Outside probes**: curl на собственный external IP (hairpin NAT) → должен вернуть selfsteal HTML; CDN external probe через Cloudflare если CDN_DOMAIN настроен. Hairpin не везде работает — graceful degrade на WARN, не FAIL.
+
+`local -n` nameref-паттерн используется для accumulate $fails/$warns между функциями. Convention: helper checks возвращают 0=OK, 1=WARN, 2=FAIL.
+
+Не реализовано (out of scope для v1.10.0): `--notify` (Telegram), `--cron` flag, log scanning, JSON output. Если понадобится cron — пользователь добавляет crontab напрямую.
+
 ### Versioning
 
 `VERSION` file in repo root is the single source of truth. `common.sh` reads it into `PROJECT_VERSION`. All scripts display version in their banner. Bump version only when script behavior changes (not for docs/README changes).

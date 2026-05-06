@@ -306,6 +306,23 @@ To ensure regional services (banking, government portals, marketplaces) work cor
 
 ## Management
 
+### Health Check
+
+After install or update, a self-check runs automatically — `selfcheck`. It displays green/red marks for services and ports, plus runs a "hairpin probe" (curl to your own public IP) to verify the Reality masque responds from outside like a real website.
+
+Run manually at any time:
+
+```bash
+sudo ./scripts/setup.sh selfcheck
+```
+
+Returns exit code `1` if anything is broken — convenient for cron:
+
+```
+# /etc/cron.d/vpn-selfcheck — example (not configured automatically)
+0 * * * * root /path/to/setup.sh selfcheck >> /var/log/selfcheck.log 2>&1
+```
+
 ### Updating Configuration
 
 ```bash
