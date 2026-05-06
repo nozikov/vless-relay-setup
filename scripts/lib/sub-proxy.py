@@ -151,8 +151,13 @@ def render_share_page(host, request_path):
     # клиенты обязаны принимать оба варианта но проще не ломать canon-форму.
     sub_url = f"https://{host}{request_path}"
 
+    # Happ wants the plain URL after add/ — no base64, no urlencode.
+    # Confirmed by Happ docs (Flyfrog-LLC/Happ-docs), 3X-UI PR #3863
+    # ("Fix DeepLink for Happ, remove encoding URL"), Remnawave's
+    # subscription-page. base64 is reserved for happ://crypt2/3/4 and
+    # happ://routing/* — not for plain subscription import.
     sub_url_b64 = base64.urlsafe_b64encode(sub_url.encode()).decode().rstrip("=")
-    happ_link = "happ://add/" + sub_url_b64
+    happ_link = "happ://add/" + sub_url
     shadowrocket_link = "sub://" + sub_url_b64
     v2raytun_link = "v2raytun://import/" + urllib.parse.quote(sub_url, safe="")
 
