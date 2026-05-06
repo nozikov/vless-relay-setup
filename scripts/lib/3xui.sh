@@ -697,3 +697,24 @@ sync_cdn_clients() {
     count=$(echo "$cdn_clients" | jq 'length')
     log_ok "CDN inbound synced ($count clients)"
 }
+
+# Идемпотентная установка симлинка /usr/local/bin/vpn → <path-to-vpn>.
+# Проверяет существование source и предупреждает если в /usr/local/bin/vpn
+# лежит чужой не-симлинк (другая программа в PATH с таким именем).
+install_vpn_cli_symlink() {
+    local src="$1"
+    local target="/usr/local/bin/vpn"
+
+    if [[ ! -f "$src" || ! -x "$src" ]]; then
+        log_warn "vpn CLI source not found or not executable at $src — skipping symlink"
+        return 0
+    fi
+
+    if [[ -e "$target" && ! -L "$target" ]]; then
+        log_warn "$target exists and is not a symlink — leaving in place. Remove it manually if you want vpn CLI."
+        return 0
+    fi
+
+    ln -sf "$(realpath "$src")" "$target"
+    log_ok "Installed 'vpn' CLI symlink at $target"
+}

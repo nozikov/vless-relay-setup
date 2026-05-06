@@ -219,6 +219,12 @@ Read-only команды (`list`, `link`) не делают `x-ui stop` — ко
 
 На exit-сервере (нет `/etc/x-ui/x-ui.db`) — error «for relay only» и exit 1. Симлинк там не ставится.
 
+CLI и веб-панель работают двунаправленно: добавил клиента в панели — `vpn list/link` видит сразу, и наоборот (3X-UI persist'ит каждое UI-изменение в БД синхронно). `x-ui stop/start` обёртка нужна только для writes, чтобы in-memory копия не перезатёрла наш UPDATE.
+
+Persistent backup в `/var/lib/vpn-cli/backup-<op>-<ts>.json` пишется перед каждым DB-mutation и удаляется при успехе. При rollback'е (xray не поднялся) или Ctrl-C между stop/start — файл остаётся как safety net для ручного восстановления. Health-check 15×1s + `pgrep -f 'xray.*x-ui'` — xray внутри 3X-UI стартует медленнее самого x-ui.
+
+Symlink-хелпер `install_vpn_cli_symlink()` в `lib/3xui.sh` — отказывается перезаписывать чужой не-симлинк в `/usr/local/bin/vpn`.
+
 ### Versioning
 
 `VERSION` file in repo root is the single source of truth. `common.sh` reads it into `PROJECT_VERSION`. All scripts display version in their banner. Bump version only when script behavior changes (not for docs/README changes).

@@ -326,8 +326,7 @@ main() {
     setup_security "${security_args[@]}"
 
     # Install vpn CLI symlink (issue #23)
-    ln -sf "$(realpath "$SCRIPT_DIR/vpn")" /usr/local/bin/vpn
-    log_ok "Installed 'vpn' CLI to /usr/local/bin/vpn"
+    install_vpn_cli_symlink "$SCRIPT_DIR/vpn"
 
     # --- Step 7: Verify ---
     # selfcheck может вернуть 1 при FAIL — не abort'им установку, "Done" банер должен напечататься
