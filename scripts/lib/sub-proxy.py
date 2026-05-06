@@ -18,7 +18,10 @@ import http.server
 import urllib.request
 import urllib.parse
 import base64
+import html
+import json
 import os
+import re
 import sys
 
 UPSTREAM = os.environ.get("SUB_UPSTREAM", "http://127.0.0.1:8443")
@@ -36,6 +39,12 @@ CONF_DIR = os.environ.get("SR_CONF_DIR", "/etc/sub-proxy")
 
 SR_MODULE = ""
 HAPP_ROUTING_HEADER = ""
+
+# share-page (issue #21): один URL для подписки и для share-page,
+# браузер vs apps различаются по Accept-заголовку.
+SHARE_PAGE_TEMPLATE_PATH = os.path.join(CONF_DIR, "share-page.html")
+SHARE_PAGE_PATH_REGEX = re.compile(r"^/[^/]+/([a-fA-F0-9]{8,32})/?$")
+_share_page_template = None  # lazy-loaded; "" means "not available, don't retry"
 
 
 def load_templates():
@@ -89,6 +98,42 @@ def _build_html_snippet(host, base):
     base_encoded = urllib.parse.quote(base, safe="")
     return HTML_SNIPPET.format(
         host=host, base=base, base_encoded=base_encoded).encode()
+
+
+def _load_share_page_template():
+    """Lazy-load HTML-шаблона. Negative-cache: пустая строка означает «не нашёлся, не пытаться повторно»."""
+    global _share_page_template
+    if _share_page_template is None:
+        try:
+            with open(SHARE_PAGE_TEMPLATE_PATH, "r", encoding="utf-8") as f:
+                _share_page_template = f.read()
+        except OSError:
+            _share_page_template = ""
+    return _share_page_template
+
+
+def render_share_page(host, request_path):
+    """Рендерит share-page HTML. Возвращает bytes или None если шаблон отсутствует."""
+    template = _load_share_page_template()
+    if not template:
+        return None
+
+    canon_path = request_path.rstrip("/") or "/"
+    sub_url = f"https://{host}{canon_path}"
+
+    sub_url_b64 = base64.urlsafe_b64encode(sub_url.encode()).decode().rstrip("=")
+    happ_link = "happ://add/" + sub_url_b64
+    shadowrocket_link = "sub://" + sub_url_b64
+    v2raytun_link = "v2raytun://import/" + urllib.parse.quote(sub_url, safe="")
+
+    page = (template
+        .replace("{{SUBSCRIPTION_URL_HTML}}", html.escape(sub_url))
+        .replace("{{SUBSCRIPTION_URL_JSON}}", json.dumps(sub_url))
+        .replace("{{HAPP_DEEPLINK}}", html.escape(happ_link))
+        .replace("{{V2RAYTUN_DEEPLINK}}", html.escape(v2raytun_link))
+        .replace("{{SHADOWROCKET_DEEPLINK}}", html.escape(shadowrocket_link))
+    )
+    return page.encode("utf-8")
 
 
 def patch_relay_vless(line):
