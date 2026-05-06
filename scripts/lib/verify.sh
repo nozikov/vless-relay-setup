@@ -50,6 +50,7 @@ verify_exit_server() {
     local panel_port="$1"
     local selfsteal_domain="${2:-}"
     local cdn_port="${3:-}"
+    local warp_enabled="${4:-N}"
 
     log_info "=== Verification ==="
     local ok=true
@@ -71,6 +72,28 @@ verify_exit_server() {
 
     if [[ -f /etc/hysteria/config.yaml ]]; then
         verify_hysteria || ok=false
+    fi
+
+    if [[ "$warp_enabled" == "Y" ]]; then
+        log_info "Verifying WARP outbound..."
+        if ss -tln 2>/dev/null | grep -qE ':40000\s'; then
+            log_ok "WARP socks5 :40000 listening"
+        else
+            log_warn "WARP socks5 :40000 NOT listening"
+        fi
+        if warp-cli status 2>/dev/null | grep -qE 'Status update: Connected|^Connected'; then
+            log_ok "WARP tunnel connected"
+        else
+            log_warn "WARP tunnel NOT connected — AI sites may be blocked"
+        fi
+        local trace
+        trace=$(curl -s --max-time 5 --socks5 127.0.0.1:40000 \
+            https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null) || true
+        if echo "$trace" | grep -q 'warp=on'; then
+            log_ok "WARP routing AI traffic via Cloudflare"
+        else
+            log_warn "WARP traffic check failed (warp=on flag missing)"
+        fi
     fi
 
     if [[ "$ok" == true ]]; then

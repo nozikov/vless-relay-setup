@@ -1,6 +1,6 @@
 #!/bin/bash
 # Update exit server configuration from latest codebase
-# Run: ./setup.sh update-exit [--upgrade]
+# Run: ./setup.sh update-exit [--upgrade] [--enable-warp|--disable-warp]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/xray.sh"
 source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/hysteria.sh"
+source "$SCRIPT_DIR/lib/warp.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
 
@@ -15,13 +16,20 @@ XRAY_CONFIG="/usr/local/etc/xray/config.json"
 XUI_DB="/etc/x-ui/x-ui.db"
 
 main() {
-    local upgrade=false skip_ssh=false
+    local upgrade=false skip_ssh=false enable_warp=false disable_warp=false
     for arg in "$@"; do
         case "$arg" in
             --upgrade) upgrade=true ;;
             --skip-ssh) skip_ssh=true ;;
+            --enable-warp) enable_warp=true ;;
+            --disable-warp) disable_warp=true ;;
         esac
     done
+
+    if [[ "$enable_warp" == true && "$disable_warp" == true ]]; then
+        log_error "--enable-warp and --disable-warp are mutually exclusive"
+        exit 1
+    fi
 
     echo "==========================================="
     echo "  VLESS Reality VPN — EXIT Server Update  v${PROJECT_VERSION}"
@@ -90,11 +98,42 @@ main() {
         dns_mode="adguard"
     fi
 
+    # Detect existing WARP outbound (issue #35) — preserve unless flag overrides
+    local warp_enabled="N"
+    if jq -e '.outbounds[] | select(.tag=="warp")' "$XRAY_CONFIG" > /dev/null 2>&1; then
+        warp_enabled="Y"
+    fi
+
+    if [[ "$enable_warp" == true ]]; then
+        if [[ "$warp_enabled" == "Y" ]]; then
+            log_info "WARP already enabled, --enable-warp is no-op"
+        else
+            log_info "Enabling WARP outbound (--enable-warp)..."
+            install_warp
+            configure_warp
+            warp_enabled="Y"
+        fi
+    elif [[ "$disable_warp" == true ]]; then
+        if [[ "$warp_enabled" == "N" ]]; then
+            log_info "WARP not enabled, --disable-warp is no-op"
+        else
+            log_info "Disabling WARP outbound (--disable-warp)..."
+            warp-cli disconnect 2>/dev/null || true
+            warp_enabled="N"
+        fi
+    elif [[ "$warp_enabled" == "Y" ]]; then
+        if ! is_warp_running; then
+            log_warn "WARP outbound configured but warp-svc not running, restarting..."
+            restart_warp || log_warn "WARP restart failed (config preserved as Y, manual fix needed)"
+        fi
+    fi
+
     log_ok "Current config read successfully"
     log_info "  UUID:     $uuid"
     log_info "  Port:     $listen_port"
     log_info "  SNI:      $server_name"
     log_info "  DNS mode: $dns_mode"
+    log_info "  WARP:     $warp_enabled"
 
     # Read panel port from 3X-UI DB (for UFW and verification)
     local panel_port=""
@@ -146,7 +185,7 @@ main() {
 
     configure_xray_exit "$listen_port" "$uuid" "$private_key" \
         "$short_id" "$dest" "$server_name" "$xver" \
-        "$cdn_port" "$cdn_path" "$dns_mode"
+        "$cdn_port" "$cdn_path" "$dns_mode" "$warp_enabled"
 
     if ! restart_xray; then
         log_warn "Restoring previous config..."
@@ -236,6 +275,9 @@ EXIT_PUBLIC_KEY=$public_key
 EXIT_SHORT_ID=$short_id
 EXIT_SERVER_NAME=$server_name
 EOF
+    if [[ "$warp_enabled" == "Y" ]]; then
+        echo "WARP_ENABLED=Y" >> /root/exit-server-info.txt
+    fi
 
     if [[ "$is_cdn" == true ]]; then
         # Read CDN domain from Caddyfile
@@ -267,7 +309,7 @@ EOF
     # --- Step 8: Verify ---
     local selfsteal_domain=""
     [[ "$is_selfsteal" == true ]] && selfsteal_domain="$server_name"
-    verify_exit_server "${panel_port:-0}" "$selfsteal_domain" "${cdn_port:-}"
+    verify_exit_server "${panel_port:-0}" "$selfsteal_domain" "${cdn_port:-}" "$warp_enabled"
 
     # --- Done ---
     echo ""
@@ -280,6 +322,9 @@ EOF
         echo "  Binaries upgraded to latest versions"
     fi
     echo "  Security re-applied"
+    if [[ "$warp_enabled" == "Y" ]]; then
+        echo "  WARP outbound:        enabled (AI services)"
+    fi
     echo ""
     echo "  Next: run 'update-relay' on every relay within ~30s to minimise"
     echo "        outage for relay-routed clients (see issue #33)."

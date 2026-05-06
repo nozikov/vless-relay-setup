@@ -29,6 +29,7 @@ configure_xray_exit() {
     local cdn_port="${8:-}"
     local cdn_path="${9:-}"
     local dns_mode="${10:-adguard}"
+    local warp_enabled="${11:-N}"
 
     log_info "Configuring XRAY as exit server..."
 
@@ -170,6 +171,31 @@ XRAYEOF
         fi
         echo "$tmp_config" > /usr/local/etc/xray/config.json
         log_ok "CDN XHTTP inbound added (port: $cdn_port)"
+    fi
+
+    if [[ "$warp_enabled" == "Y" ]]; then
+        log_info "Adding WARP outbound for AI services (issue #35)..."
+        local warp_config
+        if ! warp_config=$(jq \
+            --argjson port 40000 \
+            '.outbounds += [{
+                tag: "warp",
+                protocol: "socks",
+                settings: {
+                    servers: [{ address: "127.0.0.1", port: $port }]
+                }
+            }]
+            | .routing.rules = [{
+                type: "field",
+                domain: ["geosite:openai", "geosite:anthropic", "geosite:google-gemini", "geosite:cursor"],
+                outboundTag: "warp"
+            }] + .routing.rules' \
+            /usr/local/etc/xray/config.json); then
+            log_error "Failed to merge WARP outbound (jq error)"
+            exit 1
+        fi
+        echo "$warp_config" > /usr/local/etc/xray/config.json
+        log_ok "WARP outbound + AI routing rule added"
     fi
 }
 

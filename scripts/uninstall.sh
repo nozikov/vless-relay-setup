@@ -1,21 +1,24 @@
 #!/bin/bash
 # Uninstall all VPN components from the server
 # Preserves SSH keys and sshd_config
-# Run: ./setup.sh uninstall [--force] [--purge-certs]
+# Run: ./setup.sh uninstall [--force] [--purge-certs] [--purge-warp]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/caddy.sh" 2>/dev/null || true
 source "$SCRIPT_DIR/lib/hysteria.sh" 2>/dev/null || true
+source "$SCRIPT_DIR/lib/warp.sh" 2>/dev/null || true
 
 FORCE=false
 PURGE_CERTS=false
+PURGE_WARP=false
 
 parse_args() {
     for arg in "$@"; do
         case "$arg" in
             --force) FORCE=true ;;
             --purge-certs) PURGE_CERTS=true ;;
+            --purge-warp) PURGE_WARP=true ;;
         esac
     done
 }
@@ -32,6 +35,7 @@ confirm_uninstall() {
     echo "  - fail2ban"
     echo "  - UFW firewall rules"
     echo "  - SSL certificates (only with --purge-certs)"
+    echo "  - Cloudflare WARP (only with --purge-warp)"
     echo "  - sqlite3, socat"
     echo "  - Hysteria 2 server (if installed)"
     echo "  - Caddy web server (if installed)"
@@ -145,6 +149,16 @@ main() {
     uninstall_acme
     uninstall_fail2ban
     uninstall_ufw
+
+    # Cloudflare WARP — only with --purge-warp (preserve user's manual installs by default)
+    if [[ "$PURGE_WARP" == true ]]; then
+        if type uninstall_warp &>/dev/null; then
+            uninstall_warp
+        fi
+    elif command -v warp-cli &>/dev/null; then
+        log_info "WARP package preserved (use --purge-warp to remove)"
+    fi
+
     # Hysteria 2
     if type uninstall_hysteria &>/dev/null; then
         if [[ -f /usr/local/bin/hysteria ]] || [[ -f /etc/hysteria/config.yaml ]]; then

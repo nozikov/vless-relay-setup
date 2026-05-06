@@ -10,6 +10,7 @@ source "$SCRIPT_DIR/lib/xray.sh"
 source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
 source "$SCRIPT_DIR/lib/hysteria.sh"
+source "$SCRIPT_DIR/lib/warp.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 
 main() {
@@ -123,6 +124,17 @@ main() {
     exit_uuid=$(xray uuid)
     log_ok "Generated UUID for relay connection: $exit_uuid"
 
+    # WARP outbound for AI services (issue #35) — opt-in, default N
+    local warp_enabled="N" warp_choice
+    prompt_input "Enable WARP outbound for AI services (ChatGPT/Claude/Gemini/Cursor)? [y/N]" warp_choice "N"
+    case "$warp_choice" in
+        [Yy]*) warp_enabled="Y" ;;
+    esac
+    if [[ "$warp_enabled" == "Y" ]]; then
+        install_warp
+        configure_warp
+    fi
+
     local cdn_path="" cdn_port=""
     if [[ -n "$cdn_domain" ]]; then
         cdn_path=$(generate_random_path)
@@ -148,14 +160,14 @@ main() {
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
             "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-            1 "$cdn_port" "$cdn_path" "$dns_mode"
+            1 "$cdn_port" "$cdn_path" "$dns_mode" "$warp_enabled"
     else
         # Auto mode: select best external site
         setup_reality
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
             "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-            0 "" "" "$dns_mode"
+            0 "" "" "$dns_mode" "$warp_enabled"
     fi
 
     restart_xray
@@ -196,7 +208,7 @@ main() {
     fi
 
     # --- Step 6: Verify ---
-    verify_exit_server "$panel_port" "${selfsteal_domain:-}" "${cdn_port:-}"
+    verify_exit_server "$panel_port" "${selfsteal_domain:-}" "${cdn_port:-}" "$warp_enabled"
 
     # --- Done ---
     local server_ip
@@ -212,6 +224,9 @@ EXIT_PUBLIC_KEY=$REALITY_PUBLIC_KEY
 EXIT_SHORT_ID=$REALITY_SHORT_ID
 EXIT_SERVER_NAME=$REALITY_SERVER_NAME
 EOF
+    if [[ "$warp_enabled" == "Y" ]]; then
+        echo "WARP_ENABLED=Y" >> /root/exit-server-info.txt
+    fi
 
     if [[ -n "$cdn_domain" ]]; then
         cat >> /root/exit-server-info.txt << EOF
@@ -268,6 +283,9 @@ EOF
     echo "  Exit Reality pubkey:  $REALITY_PUBLIC_KEY"
     echo "  Exit Reality shortId: $REALITY_SHORT_ID"
     echo "  Exit Reality SNI:     $REALITY_SERVER_NAME"
+    if [[ "$warp_enabled" == "Y" ]]; then
+        echo "  WARP outbound:        enabled (AI services)"
+    fi
     if [[ -n "$cdn_domain" ]]; then
         echo "  Exit CDN domain:      $cdn_domain"
         echo "  Exit CDN path:        $cdn_path"
