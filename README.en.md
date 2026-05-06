@@ -337,6 +337,12 @@ vpn help                   # this help
 
 Changes show up in the web panel after refresh. CDN inbound is synced automatically. Auto-rollback if xray doesn't come back up after changes.
 
+### Sharing access
+
+Each client gets a universal link (`vpn link <name>`). Open it in a phone browser → you see a page with QR code, three one-tap import buttons (Happ, v2rayTun, Shadowrocket) and brief instructions. The same URL works as a standard subscription for VPN clients.
+
+Send the link to a friend in a messenger — they open it on their phone, tap "Open in Happ", import done, VPN connected.
+
 ### Updating Configuration
 
 ```bash
