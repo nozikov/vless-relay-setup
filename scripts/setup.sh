@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 
 show_usage() {
-    echo "Usage: $0 [exit|relay|update-exit|update-relay|uninstall]"
+    echo "Usage: $0 [exit|relay|update-exit|update-relay|selfcheck|uninstall]"
     echo ""
     echo "  exit         — Setup exit node (internet access point)"
     echo "                 Use --force to reinstall even if already configured"
@@ -14,10 +14,14 @@ show_usage() {
     echo "                 Use --force to reinstall even if already configured"
     echo "  update-exit  — Update exit server config from latest codebase"
     echo "                 Use --upgrade to also update XRAY and 3X-UI binaries"
+    echo "                 Use --enable-warp/--disable-warp for AI WARP outbound"
     echo "  update-relay — Update relay server config from latest codebase"
     echo "                 Use --upgrade to also update 3X-UI"
+    echo "  selfcheck    — Verify server health (services, ports, cert, masque)"
+    echo "                 Auto-detects role (exit/relay). Exit code 1 if any FAIL."
     echo "  uninstall    — Remove all VPN components (keeps SSH keys and certs)"
     echo "                 Use --purge-certs to also remove SSL certificates"
+    echo "                 Use --purge-warp to also remove cloudflare-warp"
     echo ""
     echo "  All commands accept --skip-ssh to skip SSH hardening"
     echo ""
@@ -36,6 +40,9 @@ case "${1:-}" in
         ;;
     update-relay)
         exec "$SCRIPT_DIR/update-relay.sh" "${@:2}"
+        ;;
+    selfcheck)
+        exec "$SCRIPT_DIR/selfcheck.sh" "${@:2}"
         ;;
     uninstall)
         exec "$SCRIPT_DIR/uninstall.sh" "${@:2}"

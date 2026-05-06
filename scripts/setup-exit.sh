@@ -208,7 +208,7 @@ main() {
     fi
 
     # --- Step 6: Verify ---
-    verify_exit_server "$panel_port" "${selfsteal_domain:-}" "${cdn_port:-}" "$warp_enabled"
+    "$SCRIPT_DIR/selfcheck.sh"
 
     # --- Done ---
     local server_ip

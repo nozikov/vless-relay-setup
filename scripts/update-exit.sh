@@ -323,9 +323,7 @@ EOF
     fi
 
     # --- Step 8: Verify ---
-    local selfsteal_domain=""
-    [[ "$is_selfsteal" == true ]] && selfsteal_domain="$server_name"
-    verify_exit_server "${panel_port:-0}" "$selfsteal_domain" "${cdn_port:-}" "$warp_enabled"
+    "$SCRIPT_DIR/selfcheck.sh"
 
     # --- Done ---
     echo ""

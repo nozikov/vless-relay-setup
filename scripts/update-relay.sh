@@ -449,13 +449,7 @@ SVCEOF
     setup_security "${security_args[@]}"
 
     # --- Step 7: Verify ---
-    local selfsteal_domain=""
-    if [[ "$is_selfsteal" == true ]]; then
-        selfsteal_domain=$(sqlite3 "$XUI_DB" \
-            "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" | \
-            jq -r '.realitySettings.serverNames[0]') || true
-    fi
-    verify_relay_server "$panel_port" "${sub_port:-}" "$exit_ip" "$exit_port" "${selfsteal_domain:-}"
+    "$SCRIPT_DIR/selfcheck.sh"
 
     # --- Done ---
     echo ""
