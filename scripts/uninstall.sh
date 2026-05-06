@@ -131,6 +131,7 @@ cleanup_files() {
     log_info "Cleaning up leftover files..."
 
     rm -f /root/exit-server-info.txt 2>/dev/null || true
+    rm -f /usr/local/bin/vpn 2>/dev/null || true
     log_ok "Cleanup complete"
 }
 

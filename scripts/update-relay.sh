@@ -448,6 +448,10 @@ SVCEOF
     fi
     setup_security "${security_args[@]}"
 
+    # Install vpn CLI symlink (issue #23) — идемпотентно для существующих серверов
+    ln -sf "$(realpath "$SCRIPT_DIR/vpn")" /usr/local/bin/vpn
+    log_ok "Installed/refreshed 'vpn' CLI symlink at /usr/local/bin/vpn"
+
     # --- Step 7: Verify ---
     # selfcheck может вернуть 1 при FAIL — не abort'им апдейт, "Done" банер должен напечататься
     "$SCRIPT_DIR/selfcheck.sh" || true
