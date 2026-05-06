@@ -179,7 +179,64 @@ cmd_link() {
     prefix=$(get_subscription_prefix)
     echo "${prefix}${sub_id}"
 }
-cmd_remove() { log_error "not implemented yet"; exit 1; }
+cmd_remove() {
+    local name="" force=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -f|--force) force=true; shift ;;
+            -*) log_error "Unknown flag: $1"; exit 1 ;;
+            *) name="$1"; shift ;;
+        esac
+    done
+    if [[ -z "$name" ]]; then log_error "Usage: vpn remove <name> [-f]"; exit 1; fi
+
+    if [[ "$name" == "default-user" ]]; then
+        log_error "default-user is the seed client created at setup, can't be removed via CLI"
+        exit 1
+    fi
+
+    local uuid
+    uuid=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
+        | jq -r --arg name "$name" '.clients[] | select(.email == $name) | .id') || true
+    if [[ -z "$uuid" || "$uuid" == "null" ]]; then
+        log_error "Client '$name' not found"
+        exit 1
+    fi
+
+    if [[ "$force" != true ]]; then
+        local reply
+        read -rp "Remove '$name' (UUID $uuid)? [y/N] " reply
+        if [[ "$reply" != "y" && "$reply" != "Y" ]]; then
+            log_info "Aborted."
+            return
+        fi
+    fi
+
+    local backup_settings
+    backup_settings=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';")
+
+    x-ui stop > /dev/null 2>&1 || true
+
+    local new_settings
+    new_settings=$(echo "$backup_settings" | jq -c \
+        --arg name "$name" \
+        '.clients |= map(select(.email != $name))')
+    local s_settings="${new_settings//\'/\'\'}"
+    sqlite3 "$XUI_DB" "UPDATE inbounds SET settings='${s_settings}' WHERE tag='$INBOUND_TAG';"
+
+    sync_cdn_clients || log_warn "CDN sync failed (non-fatal)"
+
+    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email='${name//\'/\'\'}';" || true
+
+    x-ui start > /dev/null 2>&1
+
+    if ! wait_xray_listening; then
+        rollback_settings "$backup_settings"
+        exit 2
+    fi
+
+    log_ok "Removed client '$name'"
+}
 
 main() {
     local cmd="${1:-help}"
