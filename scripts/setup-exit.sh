@@ -208,7 +208,8 @@ main() {
     fi
 
     # --- Step 6: Verify ---
-    "$SCRIPT_DIR/selfcheck.sh"
+    # selfcheck может вернуть 1 при FAIL — не abort'им установку, "Done" банер должен напечататься
+    "$SCRIPT_DIR/selfcheck.sh" || true
 
     # --- Done ---
     local server_ip

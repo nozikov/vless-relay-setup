@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 probe_selfsteal_hairpin() {
     local server_ip="$1"
+    local domain="${2:-}"
 
     # Pre-check: outbound HTTPS reachable at all?
     if ! curl -s --max-time 3 -o /dev/null "https://1.1.1.1/" 2>/dev/null; then
@@ -14,14 +15,33 @@ probe_selfsteal_hairpin() {
         return 1
     fi
 
-    # Hairpin check: can we curl our own external IP?
-    local resp_size
-    resp_size=$(curl -sk --max-time 5 "https://${server_ip}/" \
-        -o /dev/null -w '%{size_download}' 2>/dev/null) || resp_size=0
+    # Hairpin check: curl our own external IP using configured SNI (--resolve)
+    # so Reality matches serverNames and exercises the same path a DPI probe takes.
+    # Without --resolve curl uses Host=<IP>, no SNI → Reality fallback to caddy.sock
+    # via catch-all, not the selfsteal vhost. We want the selfsteal vhost.
+    local probe_url probe_args
+    if [[ -n "$domain" ]]; then
+        probe_url="https://${domain}/"
+        probe_args=(--resolve "${domain}:443:${server_ip}")
+    else
+        # Fallback: no domain known (auto-mode Reality dest, no SelfSteal)
+        probe_url="https://${server_ip}/"
+        probe_args=()
+    fi
 
-    if [[ "$resp_size" -eq 0 ]]; then
+    local out
+    out=$(curl -sk --max-time 5 "${probe_args[@]}" "$probe_url" \
+        -o /dev/null -w '%{http_code} %{size_download}' 2>/dev/null) || out="000 0"
+    local http_code="${out%% *}" resp_size="${out##* }"
+
+    if [[ "$http_code" == "000" ]]; then
         log_warn "Hairpin NAT not supported — verify selfsteal manually from another device"
         return 1
+    fi
+
+    if [[ "$http_code" != "200" ]]; then
+        log_error "Selfsteal probe: HTTP $http_code (expected 200) — masque may be broken"
+        return 2
     fi
 
     if [[ "$resp_size" -lt 1024 ]]; then
@@ -29,7 +49,7 @@ probe_selfsteal_hairpin() {
         return 2
     fi
 
-    log_ok "Selfsteal masque alive ($resp_size bytes)"
+    log_ok "Selfsteal masque alive (HTTP 200, $resp_size bytes)"
     return 0
 }
 
@@ -37,6 +57,9 @@ probe_cdn_external() {
     local cdn_domain="$1"
     local cdn_path="$2"
 
+    # XRAY XHTTP inbound returns 404 on bare GET (it expects POST/upload-down chunked).
+    # If we see 200 with HTML body, that means Caddy is serving selfsteal content
+    # instead of routing to XRAY — CDN path is broken.
     local http_code
     http_code=$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' \
         "https://${cdn_domain}/${cdn_path}" 2>/dev/null) || http_code="000"
@@ -50,9 +73,18 @@ probe_cdn_external() {
             log_error "CDN probe: Cloudflare $http_code (origin unreachable)"
             return 2
             ;;
-        *)
-            log_ok "CDN reachable ($http_code via Cloudflare)"
+        404|405|400)
+            # Expected from XHTTP inbound on bare GET — CDN chain works
+            log_ok "CDN reachable (HTTP $http_code from XHTTP inbound — chain alive)"
             return 0
+            ;;
+        200)
+            log_error "CDN probe: HTTP 200 (likely selfsteal HTML — CDN path not routing to XRAY)"
+            return 2
+            ;;
+        *)
+            log_warn "CDN probe: unexpected HTTP $http_code — manual check recommended"
+            return 1
             ;;
     esac
 }
@@ -60,15 +92,18 @@ probe_cdn_external() {
 check_cert_expiry() {
     local domain="$1"
 
-    # Search common cert paths for both Caddy and acme.sh
+    # Search common cert paths for both Caddy and acme.sh.
+    # Caddy may use Let's Encrypt OR ZeroSSL (fallback when LE rate-limited)
+    # → glob over all ACME CA dirs.
     local cert_file=""
-    local search_paths=(
-        "/var/lib/caddy/.local/share/caddy/certificates/acme-v02.api.letsencrypt.org-directory/${domain}/${domain}.crt"
-        "/root/.acme.sh/${domain}_ecc/${domain}.cer"
-        "/root/.acme.sh/${domain}/${domain}.cer"
+    local cert_glob_paths=(
+        /var/lib/caddy/.local/share/caddy/certificates/*/"${domain}"/"${domain}".crt
+        /root/.acme.sh/"${domain}"_ecc/"${domain}".cer
+        /root/.acme.sh/"${domain}"/"${domain}".cer
+        /etc/letsencrypt/live/"${domain}"/fullchain.pem
     )
     local p
-    for p in "${search_paths[@]}"; do
+    for p in "${cert_glob_paths[@]}"; do
         if [[ -f "$p" ]]; then
             cert_file="$p"
             break

@@ -67,7 +67,7 @@ run_selfcheck_exit() {
     local server_ip=""
     server_ip=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null) || true
     if [[ -n "$server_ip" ]]; then
-        rc=0; probe_selfsteal_hairpin "$server_ip" || rc=$?
+        rc=0; probe_selfsteal_hairpin "$server_ip" "$domain" || rc=$?
         case "$rc" in 1) _warns=$((_warns + 1)) ;; 2) _fails=$((_fails + 1)) ;; esac
     else
         log_warn "Cannot determine external IP — outside probes skipped"
@@ -132,7 +132,7 @@ run_selfcheck_relay() {
     local server_ip=""
     server_ip=$(curl -s4 --max-time 5 ifconfig.me 2>/dev/null) || true
     if [[ -n "$server_ip" ]]; then
-        rc=0; probe_selfsteal_hairpin "$server_ip" || rc=$?
+        rc=0; probe_selfsteal_hairpin "$server_ip" "$domain" || rc=$?
         case "$rc" in 1) _warns=$((_warns + 1)) ;; 2) _fails=$((_fails + 1)) ;; esac
     else
         log_warn "Cannot determine external IP — outside probes skipped"
