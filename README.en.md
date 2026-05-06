@@ -85,7 +85,7 @@ Split routing requires no additional server configuration — it is a client-sid
 
 ### Features
 
-- **VLESS + XTLS-Reality + XHTTP** — end-to-end TLS 1.3 encryption with XHTTP transport on both hops
+- **VLESS + XTLS-Reality** — end-to-end TLS 1.3 encryption. Client→relay over XHTTP transport; relay→exit and Direct Exit over RAW + xtls-rprx-vision flow (CPU savings on exit)
 - **Multi-tier CDN Fallback** — backup routes through Cloudflare with asymmetric mode
 - **Adaptive connection protection** — packet padding and connection multiplexing
 - **Hysteria 2 (UDP)** — fallback channel with Salamander obfuscation and port hopping
@@ -179,7 +179,6 @@ The script outputs connection parameters at the end — **save them** for relay 
   Exit Reality pubkey:  AbCdEfGh...
   Exit Reality shortId: 1a2b3c4d
   Exit Reality SNI:     exit.example.com
-  Exit XHTTP path:     xK9mP2vL
 ```
 
 These values are also saved to `/root/exit-server-info.txt`.

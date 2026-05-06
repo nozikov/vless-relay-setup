@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Two-server VPN deployment automation: relay (entry node) + exit (exit node) using VLESS + XTLS-Reality + XHTTP, managed via 3X-UI panels. Pure Bash scripts, no frameworks.
+Two-server VPN deployment automation: relay (entry node) + exit (exit node) using VLESS + XTLS-Reality (XHTTP on relay client-facing inbound, RAW + xtls-rprx-vision on relay→exit and Direct Exit), managed via 3X-UI panels. Pure Bash scripts, no frameworks.
 
 ## Architecture
 
@@ -12,8 +12,8 @@ Two-server VPN deployment automation: relay (entry node) + exit (exit node) usin
 User → Relay server (3X-UI + embedded XRAY, port 443)
          → VLESS Reality XHTTP inbound (sniffing: routeOnly)
          → fragment outbound (splits TLS ClientHello for DPI bypass)
-         → proxy-exit outbound (VLESS Reality XHTTP, dialerProxy: fragment)
-              → Exit server (standalone XRAY, port 443)
+         → proxy-exit outbound (VLESS Reality RAW + xtls-rprx-vision, dialerProxy: fragment)
+              → Exit server (standalone XRAY, port 443, RAW + Vision)
                    → routing: geoip:private → block
                    → internet (freedom outbound, domainStrategy: UseIP)
 
@@ -30,7 +30,7 @@ CDN Fallback (optional, requires SelfSteal):
       → VLESS XHTTP inbound (packet-up mode) → internet
   Asymmetric mode:
     Upload: Client → Cloudflare CDN → Exit (same XHTTP inbound as symmetric)
-    Download: Client → Exit:443 (Reality XHTTP direct, same main inbound relay uses)
+    Download: Client → Exit:443 (Reality RAW + Vision direct, same main inbound relay uses)
   Separate domain on Cloudflare (Proxied, SSL: Full)
   Exit: Caddy routes CDN path to local XRAY XHTTP inbound
   Relay: sub-proxy appends CDN VLESS links (symmetric + asymmetric) to subscriptions
@@ -108,6 +108,14 @@ See `patch_3xui_relay_inbound()` and `create_3xui_relay_inbound()` in `3xui.sh`.
 ### SSL Certificate Caching
 
 `issue_domain_cert()` checks for existing valid cert before calling acme.sh. Without `--force`, acme.sh also checks its own cache. Uninstall preserves certs by default (`--purge-certs` to remove). This avoids Let's Encrypt rate limits (5 duplicate certs per 168h per domain set).
+
+### Synchronous Migration: Vision Replaces XHTTP on Exit (v1.10.0+)
+
+Exit's main inbound and relay's `proxy-exit` outbound must be on the same transport: either both XHTTP (≤v1.9.x) or both RAW + xtls-rprx-vision (v1.10.0+). Cannot mix.
+
+`update-exit` migrates the exit inbound; `update-relay` migrates the relay outbound and regenerates sub-proxy URLs (Direct Exit + CDN asymmetric downloadSettings switch to `type=raw&flow=xtls-rprx-vision`). Update order: **exit first, then relay**. ~30s window of broken connectivity for relay-routed clients between the two updates. Direct Exit URLs cached in client subscriptions also break until subscription refresh.
+
+Idempotency: re-running update-* on an already-migrated config is a no-op (jq detection on `xhttpSettings` field). Relay client-facing inbound stays XHTTP. CDN packet-up XHTTP inbound (localhost) stays XHTTP — Cloudflare requires HTTP. Hysteria 2 unaffected.
 
 ### Update Scripts
 
