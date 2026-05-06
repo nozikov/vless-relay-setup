@@ -65,14 +65,13 @@ main() {
         exit 1
     fi
 
-    local exit_ip exit_port exit_uuid exit_pubkey exit_short_id exit_sni exit_xhttp_path api_port
+    local exit_ip exit_port exit_uuid exit_pubkey exit_short_id exit_sni api_port
     exit_ip=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].address')
     exit_port=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].port')
     exit_uuid=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].users[0].id')
     exit_pubkey=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.publicKey')
     exit_short_id=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.shortId')
     exit_sni=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.serverName')
-    exit_xhttp_path=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings.path' | sed 's|^/||')
     api_port=$(echo "$template" | jq -r '.inbounds[] | select(.tag=="api") | .port')
 
     if [[ -z "$exit_ip" || "$exit_ip" == "null" ]]; then
@@ -235,8 +234,14 @@ main() {
         log_ok "XHTTP inbound patched (extra block + Reality limitFallback)"
     fi
 
+    if echo "$template" | jq -e '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings' > /dev/null 2>&1; then
+        log_info "Migrating proxy-exit outbound XHTTP → RAW + xtls-rprx-vision (issue #33)"
+    else
+        log_info "proxy-exit outbound already on RAW + Vision, regenerating template"
+    fi
+
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
-        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path" "$api_port"
+        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$api_port"
 
     x-ui start
 
@@ -303,11 +308,8 @@ main() {
                 # Symmetric XHTTP CDN link
                 cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up#CDN%20XHTTP"
 
-                # Asymmetric CDN link with downloadSettings.
-                # Upload leg (client→CF→exit): conservative — only padding at top level
-                # (Cloudflare doesn't handle aggressive mux well).
-                # Download leg (client→exit direct via Reality): full extra — same threat
-                # model as direct/relay, same TSPU TLS-policing resistance needed.
+                # Asymmetric CDN link: upload via Cloudflare XHTTP, download via Reality
+                # direct to exit using RAW + xtls-rprx-vision (matches main inbound).
                 local download_extra extra_encoded
                 download_extra=$(jq -n -c \
                     --arg padding "100-1000" \
@@ -315,21 +317,16 @@ main() {
                     --arg sni "$exit_sni" \
                     --arg pubkey "$exit_pubkey" \
                     --arg sid "$exit_short_id" \
-                    --arg path "$exit_xhttp_path" \
-                    --argjson extra "$extra_json" \
                     '{
                         xPaddingBytes: $padding,
                         downloadSettings: {
-                            address: $addr, port: 443, network: "xhttp",
+                            address: $addr, port: 443, network: "raw",
                             security: "reality",
+                            flow: "xtls-rprx-vision",
                             realitySettings: {
                                 serverName: $sni, publicKey: $pubkey,
-                                shortId: $sid, fingerprint: "chrome"
-                            },
-                            xhttpSettings: {
-                                path: ("/"+$path),
-                                mode: "auto",
-                                extra: $extra
+                                shortId: $sid, fingerprint: "chrome",
+                                spiderX: "/"
                             }
                         }
                     }')
@@ -337,11 +334,8 @@ main() {
                 cdn_vless_link_asym="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up&extra=${extra_encoded}#CDN%20Asymmetric"
             fi
 
-            # Direct exit link (no relay hop) — always available.
-            # Carries same extra block as relay inbound (XHTTP+Reality, same TSPU threat).
-            local direct_extra_encoded
-            direct_extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$extra_json")
-            local direct_vless_link="vless://${exit_uuid}@${exit_ip}:${exit_port}?type=xhttp&security=reality&sni=${exit_sni}&fp=chrome&pbk=${exit_pubkey}&sid=${exit_short_id}&path=%2F${exit_xhttp_path}&mode=auto&extra=${direct_extra_encoded}#Direct%20Exit"
+            # Direct exit link — RAW + xtls-rprx-vision flow (matches main inbound).
+            local direct_vless_link="vless://${exit_uuid}@${exit_ip}:${exit_port}?type=raw&security=reality&encryption=none&flow=xtls-rprx-vision&sni=${exit_sni}&fp=chrome&pbk=${exit_pubkey}&sid=${exit_short_id}&spx=%2F#Direct%20Exit"
 
             # Hysteria 2 link — only when Hysteria is configured
             local hysteria_link=""

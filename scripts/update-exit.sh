@@ -50,7 +50,7 @@ main() {
     # --- Step 2: Extract current values ---
     log_info "=== Reading current configuration ==="
 
-    local uuid private_key short_id dest server_name xhttp_path listen_port public_key xver
+    local uuid private_key short_id dest server_name listen_port public_key xver
     uuid=$(jq -r '.inbounds[0].settings.clients[0].id' "$XRAY_CONFIG")
     private_key=$(jq -r '.inbounds[0].streamSettings.realitySettings.privateKey' "$XRAY_CONFIG")
     short_id=$(jq -r '.inbounds[0].streamSettings.realitySettings.shortIds[0]' "$XRAY_CONFIG")
@@ -77,7 +77,6 @@ main() {
         log_info "CDN mode detected (port: $cdn_port)"
     fi
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
-    xhttp_path=$(jq -r '.inbounds[0].streamSettings.xhttpSettings.path' "$XRAY_CONFIG" | sed 's|^/||')
     listen_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG")
     public_key=$(xray x25519 -i "$private_key" 2>/dev/null | grep -iE "public|password" | awk '{print $NF}')
 
@@ -139,8 +138,14 @@ main() {
     cp "$XRAY_CONFIG" "$backup_path"
     log_ok "Backup saved: $backup_path"
 
+    if jq -e '.inbounds[0].streamSettings.xhttpSettings' "$XRAY_CONFIG" > /dev/null 2>&1; then
+        log_info "Migrating XHTTP → RAW + xtls-rprx-vision (issue #33)"
+    else
+        log_info "Already on RAW + Vision, regenerating config"
+    fi
+
     configure_xray_exit "$listen_port" "$uuid" "$private_key" \
-        "$short_id" "$dest" "$server_name" "$xhttp_path" "$xver" \
+        "$short_id" "$dest" "$server_name" "$xver" \
         "$cdn_port" "$cdn_path" "$dns_mode"
 
     if ! restart_xray; then
@@ -230,7 +235,6 @@ EXIT_UUID=$uuid
 EXIT_PUBLIC_KEY=$public_key
 EXIT_SHORT_ID=$short_id
 EXIT_SERVER_NAME=$server_name
-EXIT_XHTTP_PATH=$xhttp_path
 EOF
 
     if [[ "$is_cdn" == true ]]; then

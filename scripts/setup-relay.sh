@@ -45,14 +45,13 @@ main() {
     echo "Enter the values from exit server setup:"
     echo ""
 
-    local exit_ip exit_port exit_uuid exit_pubkey exit_short_id exit_sni exit_xhttp_path
+    local exit_ip exit_port exit_uuid exit_pubkey exit_short_id exit_sni
     exit_port=443
     prompt_input "Exit server IP" exit_ip
     prompt_input "Exit server UUID" exit_uuid
     prompt_input "Exit server Reality public key" exit_pubkey
     prompt_input "Exit server Reality short ID" exit_short_id
     prompt_input "Exit server Reality SNI" exit_sni
-    prompt_input "Exit server XHTTP path" exit_xhttp_path
 
     local cdn_domain="" cdn_path=""
     prompt_input "Exit CDN domain (Enter if not configured)" cdn_domain ""
@@ -84,7 +83,6 @@ main() {
     validate_not_empty "$exit_pubkey" "Exit public key" || exit 1
     validate_not_empty "$exit_short_id" "Exit short ID" || exit 1
     validate_not_empty "$exit_sni" "Exit SNI" || exit 1
-    validate_not_empty "$exit_xhttp_path" "Exit XHTTP path" || exit 1
 
     # --- Step 2: Relay configuration ---
     log_info "=== Relay Configuration ==="
@@ -215,7 +213,8 @@ main() {
                 # Symmetric XHTTP CDN link
                 cdn_vless_link="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up#CDN%20XHTTP"
 
-                # Asymmetric CDN link with downloadSettings
+                # Asymmetric CDN link: upload via Cloudflare XHTTP, download via Reality
+                # direct to exit using RAW + xtls-rprx-vision (matches main inbound).
                 local download_extra extra_encoded
                 download_extra=$(jq -n -c \
                     --arg padding "100-1000" \
@@ -223,23 +222,20 @@ main() {
                     --arg exit_sni_val "$exit_sni" \
                     --arg exit_pubkey_val "$exit_pubkey" \
                     --arg exit_short_id_val "$exit_short_id" \
-                    --arg exit_path "$exit_xhttp_path" \
                     '{
                         xPaddingBytes: $padding,
                         downloadSettings: {
                             address: $exit_addr,
                             port: 443,
-                            network: "xhttp",
+                            network: "raw",
                             security: "reality",
+                            flow: "xtls-rprx-vision",
                             realitySettings: {
                                 serverName: $exit_sni_val,
                                 publicKey: $exit_pubkey_val,
                                 shortId: $exit_short_id_val,
-                                fingerprint: "chrome"
-                            },
-                            xhttpSettings: {
-                                path: ("/"+$exit_path),
-                                mode: "auto"
+                                fingerprint: "chrome",
+                                spiderX: "/"
                             }
                         }
                     }')
@@ -247,9 +243,9 @@ main() {
                 cdn_vless_link_asym="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up&extra=${extra_encoded}#CDN%20Asymmetric"
             fi
 
-            # Direct exit link (no relay, fastest path) — always available
+            # Direct exit link — RAW + xtls-rprx-vision flow (matches main inbound).
             local direct_vless_link
-            direct_vless_link="vless://${exit_uuid}@${exit_ip}:${exit_port}?type=xhttp&security=reality&sni=${exit_sni}&fp=chrome&pbk=${exit_pubkey}&sid=${exit_short_id}&path=%2F${exit_xhttp_path}&mode=auto#Direct%20Exit"
+            direct_vless_link="vless://${exit_uuid}@${exit_ip}:${exit_port}?type=raw&security=reality&encryption=none&flow=xtls-rprx-vision&sni=${exit_sni}&fp=chrome&pbk=${exit_pubkey}&sid=${exit_short_id}&spx=%2F#Direct%20Exit"
 
             # Hysteria 2 link — only when Hysteria is configured
             local hysteria_link=""
@@ -300,7 +296,7 @@ main() {
         "$default_sub_id" "$exit_ip" "$xver" "$relay_xhttp_path"
 
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
-        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$exit_xhttp_path"
+        "$exit_pubkey" "$exit_short_id" "$exit_sni"
 
     # First restart: 3X-UI loads inbound + template, normalizes inbound JSON
     x-ui restart

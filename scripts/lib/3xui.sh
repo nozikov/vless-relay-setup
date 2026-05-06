@@ -111,9 +111,8 @@ configure_3xui_relay_template() {
     local exit_pubkey="$4"
     local exit_short_id="$5"
     local exit_sni="$6"
-    local exit_xhttp_path="$7"
 
-    local api_port="${8:-$(shuf -i 10000-60000 -n1)}"
+    local api_port="${7:-$(shuf -i 10000-60000 -n1)}"
 
     log_info "Writing xray template config to 3X-UI database..."
 
@@ -128,7 +127,6 @@ configure_3xui_relay_template() {
         --arg exit_pubkey "$exit_pubkey" \
         --arg exit_short_id "$exit_short_id" \
         --arg exit_sni "$exit_sni" \
-        --arg exit_xhttp_path "$exit_xhttp_path" \
         --argjson api_port "$api_port" \
         --argjson extra "$extra_json" \
         '{
@@ -170,17 +168,13 @@ configure_3xui_relay_template() {
                             port: $exit_port,
                             users: [{
                                 id: $exit_uuid,
-                                encryption: "none"
+                                encryption: "none",
+                                flow: "xtls-rprx-vision"
                             }]
                         }]
                     },
                     streamSettings: {
-                        network: "xhttp",
-                        xhttpSettings: {
-                            mode: "auto",
-                            path: ("/"+$exit_xhttp_path),
-                            extra: $extra
-                        },
+                        network: "raw",
                         security: "reality",
                         realitySettings: {
                             show: false,

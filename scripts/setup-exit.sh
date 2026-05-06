@@ -119,9 +119,8 @@ main() {
     log_info "=== XRAY Setup ==="
     install_xray
 
-    local exit_uuid xhttp_path
+    local exit_uuid
     exit_uuid=$(xray uuid)
-    xhttp_path=$(generate_random_path)
     log_ok "Generated UUID for relay connection: $exit_uuid"
 
     local cdn_path="" cdn_port=""
@@ -149,14 +148,14 @@ main() {
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
             "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-            "$xhttp_path" 1 "$cdn_port" "$cdn_path" "$dns_mode"
+            1 "$cdn_port" "$cdn_path" "$dns_mode"
     else
         # Auto mode: select best external site
         setup_reality
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
             "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-            "$xhttp_path" 0 "" "" "$dns_mode"
+            0 "" "" "$dns_mode"
     fi
 
     restart_xray
@@ -212,7 +211,6 @@ EXIT_UUID=$exit_uuid
 EXIT_PUBLIC_KEY=$REALITY_PUBLIC_KEY
 EXIT_SHORT_ID=$REALITY_SHORT_ID
 EXIT_SERVER_NAME=$REALITY_SERVER_NAME
-EXIT_XHTTP_PATH=$xhttp_path
 EOF
 
     if [[ -n "$cdn_domain" ]]; then
@@ -270,7 +268,6 @@ EOF
     echo "  Exit Reality pubkey:  $REALITY_PUBLIC_KEY"
     echo "  Exit Reality shortId: $REALITY_SHORT_ID"
     echo "  Exit Reality SNI:     $REALITY_SERVER_NAME"
-    echo "  Exit XHTTP path:      $xhttp_path"
     if [[ -n "$cdn_domain" ]]; then
         echo "  Exit CDN domain:      $cdn_domain"
         echo "  Exit CDN path:        $cdn_path"

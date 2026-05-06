@@ -25,19 +25,12 @@ configure_xray_exit() {
     local short_id="$4"
     local dest="$5"
     local server_name="$6"
-    local xhttp_path="$7"
-    local xver="${8:-0}"
-    local cdn_port="${9:-}"
-    local cdn_path="${10:-}"
-    local dns_mode="${11:-adguard}"
+    local xver="${7:-0}"
+    local cdn_port="${8:-}"
+    local cdn_path="${9:-}"
+    local dns_mode="${10:-adguard}"
 
     log_info "Configuring XRAY as exit server..."
-
-    # XHTTP extra block from shared helper. Server-side fields apply (padding,
-    # scMaxEachPostBytes, scMaxBufferedPosts). Client-side fields (xmux,
-    # scMinPostsIntervalMs) are ignored at runtime but kept for config parity.
-    local extra_json
-    extra_json=$(xhttp_extra_json)
 
     local dns_servers_json
     case "$dns_mode" in
@@ -74,18 +67,14 @@ configure_xray_exit() {
             "settings": {
                 "clients": [
                     {
-                        "id": "${uuid}"
+                        "id": "${uuid}",
+                        "flow": "xtls-rprx-vision"
                     }
                 ],
                 "decryption": "none"
             },
             "streamSettings": {
-                "network": "xhttp",
-                "xhttpSettings": {
-                    "mode": "auto",
-                    "path": "/${xhttp_path}",
-                    "extra": ${extra_json}
-                },
+                "network": "raw",
                 "security": "reality",
                 "realitySettings": {
                     "show": false,
