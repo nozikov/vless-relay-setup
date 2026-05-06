@@ -185,6 +185,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         accept = self.headers.get("Accept", "")
         is_browser = "text/html" in accept
 
+        # Browser → /<subPath>/<subId> → отдаём share-page вместо 3X-UI HTML
+        if is_browser and SHARE_PAGE_PATH_REGEX.match(self.path):
+            host = self.headers.get("Host", "")
+            page = render_share_page(host, self.path)
+            if page is not None:
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                self.wfile.write(page)
+                return
+            # Если шаблон не загрузился — fallback на старое поведение (passthrough)
+
         try:
             headers = {
                 "Host": self.headers.get("Host", "localhost"),
