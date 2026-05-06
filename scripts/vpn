@@ -131,7 +131,38 @@ cmd_add() {
     echo ""
     echo "Subscription: $link"
 }
-cmd_list()   { log_error "not implemented yet"; exit 1; }
+cmd_list() {
+    local clients_json
+    clients_json=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
+        | jq -c '.clients') || {
+            log_error "Cannot read clients from $XUI_DB"; exit 1
+        }
+
+    local count
+    count=$(echo "$clients_json" | jq 'length')
+    if [[ "$count" == 0 ]]; then
+        echo "No clients."
+        return
+    fi
+
+    {
+        printf 'NAME\tUUID\tENABLE\tUP\tDOWN\n'
+        echo "$clients_json" | jq -r '.[] | [.email, .id, (if .enable then "yes" else "no" end)] | @tsv' \
+        | while IFS=$'\t' read -r email uuid enable; do
+            local traffic up=0 down=0
+            traffic=$(sqlite3 -separator $'\t' "$XUI_DB" \
+                "SELECT up, down FROM client_traffics WHERE email='${email//\'/\'\'}';" 2>/dev/null) || true
+            if [[ -n "$traffic" ]]; then
+                up=$(echo "$traffic" | cut -f1)
+                down=$(echo "$traffic" | cut -f2)
+            fi
+            local up_h down_h
+            up_h=$(numfmt --to=iec --suffix=B "$up" 2>/dev/null || echo "${up}B")
+            down_h=$(numfmt --to=iec --suffix=B "$down" 2>/dev/null || echo "${down}B")
+            printf '%s\t%s\t%s\t%s\t%s\n' "$email" "$uuid" "$enable" "$up_h" "$down_h"
+        done
+    } | column -t -s$'\t'
+}
 cmd_link()   { log_error "not implemented yet"; exit 1; }
 cmd_remove() { log_error "not implemented yet"; exit 1; }
 
