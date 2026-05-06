@@ -14,8 +14,10 @@ User → Relay server (3X-UI + embedded XRAY, port 443)
          → fragment outbound (splits TLS ClientHello for DPI bypass)
          → proxy-exit outbound (VLESS Reality RAW + xtls-rprx-vision, dialerProxy: fragment)
               → Exit server (standalone XRAY, port 443, RAW + Vision)
-                   → routing: geoip:private → block
-                   → internet (freedom outbound, domainStrategy: UseIP)
+                   → routing:
+                       AI domains → WARP outbound (optional, issue #35)
+                       geoip:private → block
+                       else → internet (freedom outbound, domainStrategy: UseIP)
 
 SelfSteal mode (optional):
   XRAY Reality dest → /dev/shm/caddy.sock (xver=1, PROXY protocol)
@@ -162,6 +164,21 @@ Hysteria 2 uses Caddy's Let's Encrypt certs, copied to `/etc/hysteria/certs/`. H
 ### Hysteria 2 Port Hopping
 
 Hysteria standalone natively supports listening on a port range (`listen: :PORT-PORT_END`). No iptables rules needed. Client URL includes the range: `hysteria2://...@host:port,port-port_end/...`. UFW opens the entire range as UDP: `ufw allow PORT:PORT_END/udp`.
+
+### WARP Outbound для AI (issue #35, v1.10.0+)
+
+Опциональный socks5-proxy на 127.0.0.1:40000 через `cloudflare-warp` пакет (apt, signed-by). XRAY роутит AI-домены (geosite: openai/anthropic/google-gemini/cursor) через WARP outbound; остальной трафик идёт через freedom как обычно. Domain rule prepended в `routing.rules` ПЕРЕД geoip:private — критично для корректного матчинга AI-доменов.
+
+Lifecycle:
+- Fresh install: `setup-exit` спрашивает Y/N (default N)
+- Update preserve: `update-exit` детектит outbound `warp` в config, сохраняет состояние
+- Enable existing: `update-exit --enable-warp` — установка + добавление в config + рестарт
+- Disable existing: `update-exit --disable-warp` — выкидывает rule + outbound из config (warp-cli не сносит)
+- Полный снос: `uninstall.sh --purge-warp` — apt purge + удаление apt repo + ключа
+
+`lib/warp.sh` API повторяет паттерн `lib/hysteria.sh`: install / configure / restart / uninstall + is_warp_running helper.
+
+Известные ограничения: WARP free пропускная способность ~100 Mbps, рандомный CF IP при рестарте warp-svc, зависимость от CF apt-репо при установке. WARP+ (платный, статический IP) не поддерживается — out of scope.
 
 ### Custom SSH Port
 

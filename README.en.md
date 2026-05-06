@@ -63,6 +63,42 @@ UDP channel using the Hysteria 2 protocol. Runs over QUIC with Salamander obfusc
 
 Requires SelfSteal (needs TLS certificate). Link is added to subscription automatically. Hysteria 2 runs as a separate process alongside XRAY — two channels are fully independent.
 
+### AI Services Access (optional)
+
+ChatGPT, Claude, Gemini, and Cursor block datacenter IPs. If your exit server is on Hetzner / DigitalOcean / AEZA and similar — AI services will return "You are blocked".
+
+Solution: optional WARP outbound on exit. Cloudflare WARP provides a consumer-IP pool, so AI services see your request as a regular home user.
+
+```
+On exit, the routing adds:
+  AI domains (openai/anthropic/google-gemini/cursor)
+    → WARP outbound (Cloudflare consumer IP)
+  All other domains
+    → freedom (as before)
+```
+
+Enable during install: answer `Y` to "Enable WARP outbound for AI services" prompt in `setup.sh exit`.
+
+Enable on existing server:
+
+```bash
+sudo ./scripts/setup.sh update-exit --enable-warp
+```
+
+Disable:
+
+```bash
+sudo ./scripts/setup.sh update-exit --disable-warp
+```
+
+Full removal (including cloudflare-warp package):
+
+```bash
+sudo ./scripts/setup.sh uninstall --purge-warp
+```
+
+**Limitations:** WARP free gives roughly 100 Mbps. For AI chats this is plenty, but for heavy file work through AI it may be slow.
+
 ### DNS Filtering
 
 The exit node uses AdGuard DNS to filter ads and trackers at the DNS level. No client-side configuration needed.
