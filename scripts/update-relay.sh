@@ -234,6 +234,33 @@ main() {
         log_ok "XHTTP inbound patched (extra block + Reality limitFallback)"
     fi
 
+    # Issue #38: backfill client_traffics для всех клиентов в settings.clients[],
+    # у кого нет row (включая seed default-user на серверах <=v1.10.0).
+    # Идемпотентно: ensure_client_traffics_row делает INSERT WHERE NOT EXISTS.
+    local backfill_emails backfill_added=0
+    backfill_emails=$(sqlite3 "$XUI_DB" \
+        "SELECT json_extract(value, '\$.email')
+         FROM inbounds, json_each(json_extract(settings, '\$.clients'))
+         WHERE tag='inbound-443';" 2>/dev/null) || true
+    if [[ -n "$backfill_emails" ]]; then
+        while IFS= read -r email; do
+            [[ -z "$email" ]] && continue
+            local before after
+            before=$(sqlite3 "$XUI_DB" \
+                "SELECT COUNT(*) FROM client_traffics WHERE email='${email//\'/\'\'}';")
+            ensure_client_traffics_row "$email"
+            after=$(sqlite3 "$XUI_DB" \
+                "SELECT COUNT(*) FROM client_traffics WHERE email='${email//\'/\'\'}';")
+            if [[ "$before" == "0" && "$after" != "0" ]]; then
+                backfill_added=$((backfill_added + 1))
+                log_info "  Added client_traffics row for '$email'"
+            fi
+        done <<< "$backfill_emails"
+        if [[ "$backfill_added" -gt 0 ]]; then
+            log_ok "Backfilled $backfill_added client_traffics row(s) (issue #38)"
+        fi
+    fi
+
     if echo "$template" | jq -e '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings' > /dev/null 2>&1; then
         log_info "Migrating proxy-exit outbound XHTTP → RAW + xtls-rprx-vision (issue #33)"
         log_warn "  This relay will speak Vision to ${exit_ip}:${exit_port}."

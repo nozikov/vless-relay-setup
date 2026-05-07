@@ -10,6 +10,26 @@ XUI_DB="/etc/x-ui/x-ui.db"
 # and 3xui.sh (relay) use the same values. This prevents mismatch between
 # relay outbound scMaxEachPostBytes and exit inbound cap.
 
+# Idempotent INSERT into client_traffics (issue #38). 3X-UI doesn't sync
+# settings.clients[] → client_traffics at startup — only on add via UI/API.
+# Without a row here UI shows "—" for traffic and per-client limits don't apply.
+# Caller responsibility: x-ui must be stopped (else in-memory snapshot wins).
+ensure_client_traffics_row() {
+    local email="$1"
+    local inbound_tag="${2:-inbound-443}"
+    local s_email="${email//\'/\'\'}"
+    local s_tag="${inbound_tag//\'/\'\'}"
+    sqlite3 "$XUI_DB" "
+        INSERT INTO client_traffics (inbound_id, enable, email, up, down, total, expiry_time, reset)
+        SELECT id, 1, '${s_email}', 0, 0, 0, 0, 0
+        FROM inbounds
+        WHERE tag='${s_tag}'
+          AND NOT EXISTS (
+              SELECT 1 FROM client_traffics WHERE email='${s_email}'
+          );
+    "
+}
+
 install_3xui() {
     local skip_acme_port="${1:-false}"
 
@@ -329,8 +349,10 @@ create_3xui_relay_inbound() {
     local s_stream="${stream_settings//\'/\'\'}"
     local s_sniffing="${sniffing//\'/\'\'}"
 
-    # Clean up any existing inbound with the same tag (e.g. --force reinstall)
+    # Clean up any existing inbound with the same tag (e.g. --force reinstall) —
+    # вместе с осиротевшей строкой client_traffics seed-клиента.
     sqlite3 "$XUI_DB" "DELETE FROM inbounds WHERE tag='inbound-443';" || true
+    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email='default-user';" || true
 
     sqlite3 "$XUI_DB" "INSERT INTO inbounds (
         user_id, up, down, total, remark, enable, expiry_time,
@@ -341,6 +363,10 @@ create_3xui_relay_inbound() {
         '', 443, 'vless', '${s_settings}', '${s_stream}',
         'inbound-443', '${s_sniffing}'
     );"
+
+    # Issue #38: client_traffics row нужен явно — 3X-UI не sync'ает
+    # settings.clients[] в эту таблицу при старте, только при add через UI/API.
+    ensure_client_traffics_row "default-user"
 
     log_ok "VLESS Reality XHTTP relay inbound created (port 443, tag inbound-443)"
     log_info "  Default client subId: $sub_id"

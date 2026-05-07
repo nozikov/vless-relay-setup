@@ -157,6 +157,12 @@ cmd_add() {
         exit 2
     fi
 
+    # client_traffics row (issue #38) — симметрично с DELETE в cmd_remove.
+    # После успешного start: если упадёт — клиент уже в inbound, трафик просто
+    # будет lazy-создан 3X-UI'ем при первом stats update.
+    ensure_client_traffics_row "$name" || \
+        log_warn "client_traffics row insert failed (non-fatal) — UI traffic for '$name' may show '—'"
+
     # CDN sync — после успешного start. sync_cdn_clients идемпотентный,
     # rollback при его падении не нужен (relay-канал работает, CDN опционален).
     sync_cdn_clients || log_warn "CDN sync failed (non-fatal) — re-run 'vpn add' or 'update-relay' to retry"
