@@ -304,3 +304,37 @@ ssh vpn-relay   # Relay server (root)
 ```
 
 Both have the repo cloned at `~/vless-relay-setup/`.
+
+## Working Practices
+
+### Discuss vs act
+
+Phrases like "давай X", "давай усовершенствуем Y", "можем Z", "стоит ли", "что думаешь", "let's do X", "could we Z", "what do you think" are **discussion/planning**, not a command to edit code. Before touching code, require either an explicit go-ahead ("правь", "делай", "вперёд", "фикс", "go", "do it", "ship it") or present the proposed diff as text and ask "apply?".
+
+This applies extra strictly to infra operations (deploy, ssh, push) — explicit confirmation is required there in any case, even with command verbs.
+
+### Deploy: git pull + restart is not enough
+
+`setup-*` / `update-*` scripts copy files from `~/vless-relay-setup/scripts/lib/` into system paths (`/usr/local/bin/sub-proxy.py`, `/etc/sub-proxy/share-page.html`, `/etc/caddy/Caddyfile`, `/etc/hysteria/config.yaml`, `/usr/local/bin/vpn`). `git pull && systemctl restart` only updates the checkout — files are not copied into system locations and the service keeps running the old code.
+
+If you edited `scripts/lib/sub-proxy.py` / `scripts/lib/templates/*` / `scripts/vpn`, or any `lib/*.sh` function that performs install/chmod/template-rendering, deploy via `update-relay` / `update-exit` (idempotent), or use an explicit `install -m 0755 source target && systemctl restart` for quick debugging. No `git pull` shortcuts.
+
+### Review: check lib imports in callers
+
+When adding a call to a function from `scripts/lib/*.sh`, verify that **every** caller script sources it. Do not assume "logically the lib must be there" and do not rely on `bash -n` alone — it checks syntax but does not catch undeclared functions.
+
+```bash
+grep -n "source.*lib/<module>.sh" scripts/setup-*.sh scripts/update-*.sh
+```
+
+Compare against the list of places where you call the function. For multi-agent reviews, explicitly ask reviewers to "verify that every script that now calls <new_function> sources <module>.sh".
+
+### No infra leakage in public
+
+Never publish in GitHub (issue comments, PR descriptions, release notes, README) anything that exposes infrastructure: hostnames from `~/.ssh/config`, IP addresses, specific domains, or ssh commands with real hosts.
+
+- README/docs: use `relay.example.com`, `your-server`, `<HOSTNAME>` placeholders.
+- User-facing commands: `ssh root@<your-relay>`, `cd ~/vless-relay-setup`.
+- Issue close: no comment, or abstract phrasing ("deployed to prod").
+
+In local Claude Code conversations, real names are fine.
