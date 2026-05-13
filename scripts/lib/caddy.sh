@@ -18,16 +18,7 @@ install_caddy() {
     systemctl stop caddy 2>/dev/null || true
     systemctl disable caddy 2>/dev/null || true
 
-    # Caddy APT package runs as 'caddy' user by default.
-    # Override to run as root so it can create unix sockets in /dev/shm
-    # and XRAY (running as root) can write to them without permission issues.
-    mkdir -p /etc/systemd/system/caddy.service.d
-    cat > /etc/systemd/system/caddy.service.d/override.conf << 'SVCEOF'
-[Service]
-User=root
-Group=root
-SVCEOF
-    systemctl daemon-reload
+    install_caddy_systemd_override
 
     if command -v caddy &>/dev/null; then
         log_ok "Caddy installed: $(caddy version 2>/dev/null | head -1)"
@@ -35,6 +26,24 @@ SVCEOF
         log_error "Caddy installation failed"
         exit 1
     fi
+}
+
+# Idempotent: writes systemd drop-in that
+#   1) runs Caddy as root (default APT package runs as 'caddy' user, can't
+#      create unix sockets in /dev/shm under nobody-friendly perms),
+#   2) chmod's /dev/shm/caddy.sock to 0666 on every Caddy start so XRAY
+#      (running as 'nobody') can write to the Reality fallback socket.
+# Issue #42 / #39: ExecStartPost ensures perms persist across any caddy
+# restart — apt-postinst, kernel reboot, manual `systemctl restart caddy`.
+install_caddy_systemd_override() {
+    mkdir -p /etc/systemd/system/caddy.service.d
+    cat > /etc/systemd/system/caddy.service.d/override.conf << 'SVCEOF'
+[Service]
+User=root
+Group=root
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 50); do [ -S /dev/shm/caddy.sock ] && break; sleep 0.1; done; chmod 0666 /dev/shm/caddy.sock 2>/dev/null || true'
+SVCEOF
+    systemctl daemon-reload
 }
 
 generate_caddyfile() {
@@ -221,11 +230,8 @@ start_caddy() {
     systemctl restart caddy
 
     if systemctl is-active --quiet caddy; then
-        # XRAY (running as nobody) needs write access to the unix socket
-        # created by Caddy (running as root). Default socket mode is 0600.
-        if [[ -S "$CADDY_SOCK" ]]; then
-            chmod 0666 "$CADDY_SOCK"
-        fi
+        # Socket perms (0666) applied by ExecStartPost in
+        # install_caddy_systemd_override — see issue #42.
         log_ok "Caddy is running"
     else
         log_error "Caddy failed to start. Check: journalctl -u caddy"
