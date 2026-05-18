@@ -148,6 +148,17 @@ main() {
         panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
     fi
 
+    # --- Step 2b: Heal Caddy socket perms (issue #42) ---
+    # Install/refresh systemd override BEFORE apt upgrade — if apt-postinst
+    # restarts Caddy in this run, ExecStartPost will already be in place.
+    if [[ "$is_selfsteal" == true ]]; then
+        install_caddy_systemd_override
+        if [[ -S "/dev/shm/caddy.sock" ]] && [[ "$(stat -c '%a' /dev/shm/caddy.sock 2>/dev/null)" != "666" ]]; then
+            log_info "Restarting Caddy to apply socket perms fix..."
+            systemctl restart caddy
+        fi
+    fi
+
     # --- Step 3: System update ---
     log_info "=== System Update ==="
     update_system
