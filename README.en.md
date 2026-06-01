@@ -146,6 +146,7 @@ Split routing requires no additional server configuration — it is a client-sid
 - **SSH keys** configured for both servers (the script disables password login)
 - **Domain** (optional) — for subscriptions and/or SelfSteal mode
 - **CDN Fallback domain** (optional) — separate domain connected to Cloudflare (free plan). Requires SelfSteal
+- **3X-UI v3.x** — installed and pinned automatically (the relay is managed through the panel's REST API)
 
 > **Important:** SSH keys must be configured before running the scripts.
 
@@ -371,6 +372,8 @@ To update binaries (XRAY, 3X-UI, Caddy), add `--upgrade`:
 sudo ./scripts/setup.sh update-exit --upgrade
 sudo ./scripts/setup.sh update-relay --upgrade
 ```
+
+> **Upgrading to v1.11.0 (from ≤ v1.10.x):** in v1.11.0 the relay is managed through the 3X-UI v3.x REST API, so the panel binary is upgraded from v2.8.11 to v3.1.0. This transition **requires** the `--upgrade` flag — without it the new code can't reach the v3 API and the update breaks. Existing clients migrate automatically (3X-UI's seeder moves them into the normalized tables). **Back up** `/etc/x-ui/x-ui.db` **before upgrading.** Order is unchanged: exit first, then relay.
 
 ### Uninstalling
 
