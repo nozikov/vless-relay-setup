@@ -576,9 +576,18 @@ sync_cdn_clients() {
 
     # Desired: one "<email>-cdn" per relay client, same subId, exit UUID.
     local relay_clients
+    # Read relay clients from inbound-443 settings JSON: on v3 the API's clients/add
+    # back-writes this JSON in addition to the normalized tables, so it stays current.
     relay_clients=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='inbound-443';" \
         | jq -c '[.clients[]? | {email: (.email + "-cdn"), subId: .subId, enable: .enable}]') || true
     [[ -z "$relay_clients" || "$relay_clients" == "null" ]] && relay_clients='[]'
+    # Safety: a relay always has >=1 client (default-user). An empty desired set
+    # here means an anomalous/empty read — do NOT proceed to the remove-extra loop,
+    # which would purge every existing -cdn client. Bail without mutating.
+    if [[ "$relay_clients" == "[]" ]]; then
+        log_warn "CDN sync: relay client set read as empty — skipping (no add/remove) to avoid purging CDN clients"
+        return 0
+    fi
 
     # Current CDN client emails (from clients/list, filtered to the "-cdn" convention).
     local current_cdn
