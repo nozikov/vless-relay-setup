@@ -38,16 +38,18 @@ install_3xui() {
     # Open port 80 temporarily — the installer uses it for Let's Encrypt SSL cert
     ufw allow 80/tcp comment "ACME temp" > /dev/null 2>&1 || true
 
-    # The installer asks interactive questions (confirm, port, SSL method, etc.)
-    # Create an input file with empty lines to accept all defaults.
-    # Using a file instead of pipe (yes "") avoids SIGPIPE with set -o pipefail.
-    # Pin 3X-UI to v2.8.11. v3.0.0+ moved clients from inbounds.settings JSON to
-    # separate `clients` + `client_inbounds` tables, and the sub-server now reads
-    # only from the normalised tables. Our SQL-driven setup still writes to the
-    # legacy JSON path, so a fresh install on v3.x produces 404 from sub-server
-    # (issue #44). Until we migrate to the panel REST API, stay on v2.x.
-    printf '\n%.0s' {1..100} > /tmp/xui-answers
-    bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) v2.8.11 < /tmp/xui-answers
+    # Pin 3X-UI to v3.1.0 and pull install.sh from the SAME tag (not master) so the
+    # interactive prompt set is stable. v3.x install.sh asks: (1) DB type [SQLite=1
+    # default], (2) SSL menu where empty→2 = Let's Encrypt IP cert (acme on :80,
+    # conflicts with Caddy). We must select 4 = Skip SSL. Build an explicit answer
+    # file rather than relying on blank lines. (Exact prompt order to be confirmed
+    # against a live v3.1.0 installer during verification.)
+    {
+        printf '\n'   # DB type: SQLite (default 1)
+        printf '4\n'  # SSL menu: Skip SSL
+        printf '\n%.0s' {1..98}  # any further prompts: accept defaults
+    } > /tmp/xui-answers
+    bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
     rm -f /tmp/xui-answers
 
     # Close temporary port 80 — unless Caddy needs it permanently (SelfSteal mode)
