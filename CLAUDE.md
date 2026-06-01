@@ -91,6 +91,7 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 - `3xui.sh` — 3X-UI install/configure, SQLite operations, SSL certs, inbound/template management
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
 - `hysteria.sh` — Hysteria 2 installation, YAML config generation, cert copy from Caddy, restart, uninstall
+- `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token via `api_tokens`, bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write.
 - `sub-proxy.py` — subscription proxy: sits between Caddy and 3X-UI subscription, appends CDN VLESS + Hysteria 2 links. Passes through HTML pages (QR codes) for browsers, modifies only base64 responses for apps
 
 ## Critical Patterns
@@ -107,7 +108,11 @@ x-ui start         # Load fresh state from DB
 
 `xui_db_set()` in `3xui.sh` handles upsert for the `settings` table with automatic SQL escaping. Complex operations (inbounds) use direct `sqlite3` calls with manual escaping.
 
+**v3.x (since 1.11.0):** client/inbound *writes* go through the REST API (`lib/xui-api.sh`, Bearer token, CSRF-exempt `/panel/api/*`) so they populate v3's normalized `clients`+`client_inbounds` tables (the subscription server reads those — raw JSON-only writes 404, issue #44). The `x-ui stop`/`start` window is now used only for `settings`/`xrayTemplateConfig` DB-writes and `bootstrap_api_token`. Reads (`vpn list/link`, selfcheck) read the normalized `clients` table directly.
+
 ### 3X-UI Inbound Normalization
+
+> **Obsolete since 1.11.0 (v3.x migration).** The two-restart insert→strip→patch cycle below applied to the v2.x raw-sqlite INSERT path. On v3.x the relay inbound is created via `POST /panel/api/inbounds/add`, which persists `realitySettings`/`subId` verbatim and live-injects into xray — no field stripping, no double-restart, and `patch_3xui_relay_inbound` was removed. The historical description is kept below for context.
 
 After INSERT into `inbounds` table, 3X-UI strips fields on first restart: `subId`, `realitySettings.settings` (publicKey/fingerprint). The workaround is a two-restart cycle:
 
