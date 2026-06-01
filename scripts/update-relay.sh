@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/3xui.sh"
+source "$SCRIPT_DIR/lib/xui-api.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
 
@@ -141,11 +142,15 @@ main() {
     # --- Step 4: Upgrade 3X-UI (optional) ---
     if [[ "$upgrade" == true ]]; then
         log_info "=== Upgrading 3X-UI ==="
-        # Pinned to v2.8.11 — see scripts/lib/3xui.sh:install_3xui for rationale.
-        printf '\n%.0s' {1..100} > /tmp/xui-answers
-        bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) v2.8.11 < /tmp/xui-answers
+        # Pinned to v3.1.0 — see scripts/lib/3xui.sh:install_3xui. Skip-SSL (option 4).
+        # First start of v3.1.0 runs the seeder, migrating existing JSON clients into
+        # the normalized clients/client_inbounds tables (subscriptions survive upgrade).
+        {
+            printf '\n'; printf '4\n'; printf '\n%.0s' {1..98}
+        } > /tmp/xui-answers
+        bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
         rm -f /tmp/xui-answers
-        log_ok "3X-UI upgraded"
+        log_ok "3X-UI upgraded to v3.1.0 (seeder migrated existing clients)"
 
         if [[ "$is_selfsteal" == true ]]; then
             log_info "Upgrading Caddy..."
@@ -165,6 +170,10 @@ main() {
     # 3X-UI overwrites DB on shutdown with in-memory state.
     # Must stop before writing, then start to load fresh config.
     x-ui stop
+
+    # Bootstrap the REST API token while x-ui is stopped (loads fresh on the start
+    # below; no later restart to flush it). Idempotent — reuses an existing valid token.
+    bootstrap_api_token
 
     # Patch inbound sniffing to add routeOnly (idempotent — jq sets the field)
     local current_sniffing patched_sniffing
@@ -216,6 +225,9 @@ main() {
         local s_settings="${patched_settings//\'/\'\'}"
         sqlite3 "$XUI_DB" \
             "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-443';"
+        # v3: keep the normalized clients table in sync (flow column). Guarded no-op
+        # if the table doesn't exist (relay not yet upgraded to v3 in this run).
+        sqlite3 "$XUI_DB" "UPDATE clients SET flow='' WHERE flow != '';" 2>/dev/null || true
 
         log_ok "Relay inbound migrated from TCP to XHTTP"
     fi
@@ -246,32 +258,9 @@ main() {
         log_ok "XHTTP inbound patched (extra block + Reality limitFallback)"
     fi
 
-    # Issue #38: backfill client_traffics для всех клиентов в settings.clients[],
-    # у кого нет row (включая seed default-user на серверах <=v1.10.0).
-    # Идемпотентно: ensure_client_traffics_row делает INSERT WHERE NOT EXISTS.
-    local backfill_emails backfill_added=0
-    backfill_emails=$(sqlite3 "$XUI_DB" \
-        "SELECT json_extract(value, '\$.email')
-         FROM inbounds, json_each(json_extract(settings, '\$.clients'))
-         WHERE tag='inbound-443';" 2>/dev/null) || true
-    if [[ -n "$backfill_emails" ]]; then
-        while IFS= read -r email; do
-            [[ -z "$email" ]] && continue
-            local before after
-            before=$(sqlite3 "$XUI_DB" \
-                "SELECT COUNT(*) FROM client_traffics WHERE email='${email//\'/\'\'}';")
-            ensure_client_traffics_row "$email"
-            after=$(sqlite3 "$XUI_DB" \
-                "SELECT COUNT(*) FROM client_traffics WHERE email='${email//\'/\'\'}';")
-            if [[ "$before" == "0" && "$after" != "0" ]]; then
-                backfill_added=$((backfill_added + 1))
-                log_info "  Added client_traffics row for '$email'"
-            fi
-        done <<< "$backfill_emails"
-        if [[ "$backfill_added" -gt 0 ]]; then
-            log_ok "Backfilled $backfill_added client_traffics row(s) (issue #38)"
-        fi
-    fi
+    # client_traffics rows are created server-side by the 3X-UI API / upgrade seeder on
+    # v3.x — the former manual backfill loop (issue #38, ensure_client_traffics_row) is
+    # obsolete and its helper was removed.
 
     if echo "$template" | jq -e '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings' > /dev/null 2>&1; then
         log_info "Migrating proxy-exit outbound XHTTP → RAW + xtls-rprx-vision (issue #33)"
@@ -314,6 +303,12 @@ main() {
         exit 1
     fi
     log_ok "3X-UI restarted with updated template (xray bound :443)"
+
+    # Re-assert the CDN client set via API. The upgrade seeder migrated relay clients
+    # into the normalized tables; the CDN "-cdn" variants are ours to reconcile.
+    if [[ "$is_cdn" == true ]]; then
+        sync_cdn_clients || log_warn "CDN client re-sync failed (non-fatal)"
+    fi
 
     # --- Step 5b: Update extra links in sub-proxy if active ---
     local sub_proxy_service="/etc/systemd/system/sub-proxy.service"
