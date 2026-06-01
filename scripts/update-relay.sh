@@ -142,11 +142,19 @@ main() {
     # --- Step 4: Upgrade 3X-UI (optional) ---
     if [[ "$upgrade" == true ]]; then
         log_info "=== Upgrading 3X-UI ==="
-        # Pinned to v3.1.0 — see scripts/lib/3xui.sh:install_3xui. Skip-SSL (option 4).
-        # First start of v3.1.0 runs the seeder, migrating existing JSON clients into
-        # the normalized clients/client_inbounds tables (subscriptions survive upgrade).
+        # Pinned to v3.1.0 — see scripts/lib/3xui.sh:install_3xui. First start of
+        # v3.1.0 runs the seeder, migrating existing JSON clients into the normalized
+        # clients/client_inbounds tables (subscriptions survive upgrade).
+        # On an already-configured panel install.sh skips the DB/port prompts; the
+        # only question is SSL (and, when SSL=4 is picked, a bind-to-127.0.0.1 y/N).
+        # So the SSL answer (4 = Skip) must be FIRST here — unlike the fresh-install
+        # feed in install_3xui, which has DB+port prompts ahead of it. A leading blank
+        # would land on the SSL prompt and default it to option 2 (LE IP cert, acme on
+        # :80, collides with Caddy).
         {
-            printf '\n'; printf '4\n'; printf '\n%.0s' {1..98}
+            printf '4\n'  # SSL method         → Skip SSL
+            printf '\n'   # Bind to 127.0.0.1? → N (all interfaces)
+            printf '\n%.0s' {1..98}  # any further/unexpected prompts: accept defaults
         } > /tmp/xui-answers
         bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
         rm -f /tmp/xui-answers
