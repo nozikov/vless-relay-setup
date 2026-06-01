@@ -14,26 +14,6 @@ XUI_DB="/etc/x-ui/x-ui.db"
 # and 3xui.sh (relay) use the same values. This prevents mismatch between
 # relay outbound scMaxEachPostBytes and exit inbound cap.
 
-# Idempotent INSERT into client_traffics (issue #38). 3X-UI doesn't sync
-# settings.clients[] → client_traffics at startup — only on add via UI/API.
-# Without a row here UI shows "—" for traffic and per-client limits don't apply.
-# Caller responsibility: x-ui must be stopped (else in-memory snapshot wins).
-ensure_client_traffics_row() {
-    local email="$1"
-    local inbound_tag="${2:-inbound-443}"
-    local s_email="${email//\'/\'\'}"
-    local s_tag="${inbound_tag//\'/\'\'}"
-    sqlite3 "$XUI_DB" "
-        INSERT INTO client_traffics (inbound_id, enable, email, up, down, total, expiry_time, reset)
-        SELECT id, 1, '${s_email}', 0, 0, 0, 0, 0
-        FROM inbounds
-        WHERE tag='${s_tag}'
-          AND NOT EXISTS (
-              SELECT 1 FROM client_traffics WHERE email='${s_email}'
-          );
-    "
-}
-
 install_3xui() {
     local skip_acme_port="${1:-false}"
 
@@ -344,66 +324,6 @@ create_3xui_relay_inbound() {
     log_ok "VLESS Reality XHTTP relay inbound created (port 443, tag inbound-443, id $inbound_id)"
     # echo id and sub_id for caller (to add the seed client)
     printf '%s %s' "$inbound_id" "$sub_id"
-}
-
-# 3X-UI normalizes inbound JSON on first restart after INSERT, stripping
-# fields it doesn't expect in server-side config (subId, realitySettings.settings).
-# This function re-adds them so subscriptions work correctly.
-# Must be called AFTER the x-ui restart that follows create_3xui_relay_inbound.
-patch_3xui_relay_inbound() {
-    local sub_id="$1"
-    local public_key="$2"
-
-    log_info "Patching relay inbound subscription fields..."
-
-    local current_settings current_stream extra_json lf_json
-    extra_json=$(xhttp_extra_json)
-    lf_json=$(reality_limit_fallback_json)
-
-    # Re-add subId to client settings
-    current_settings=$(sqlite3 "$XUI_DB" \
-        "SELECT settings FROM inbounds WHERE tag='inbound-443';")
-    local patched_settings
-    patched_settings=$(echo "$current_settings" | jq -c \
-        --arg sub_id "$sub_id" \
-        '.clients[0].subId = $sub_id | .clients[0].tgId = "" | .clients[0].reset = 0')
-    if [[ -z "$patched_settings" ]]; then
-        log_error "jq failed to patch client settings (input may be malformed)"
-        exit 1
-    fi
-    local s_settings="${patched_settings//\'/\'\'}"
-    sqlite3 "$XUI_DB" \
-        "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-443';"
-
-    # Re-add realitySettings.settings (publicKey + fingerprint for subscription URLs).
-    # Re-add xhttpSettings.extra (xmux + padding) — 3X-UI may strip it on first normalize.
-    # Re-add realitySettings.limitFallback{Upload,Download} — non-standard for 3X-UI UI,
-    # likely stripped on normalize. Idempotent: if not stripped, re-set is a no-op.
-    # Note: `.realitySettings += $lf` is shallow merge — adds only limitFallback keys,
-    # preserves .realitySettings.settings set in the same pipeline.
-    current_stream=$(sqlite3 "$XUI_DB" \
-        "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';")
-    local patched_stream
-    patched_stream=$(echo "$current_stream" | jq -c \
-        --arg public_key "$public_key" \
-        --argjson extra "$extra_json" \
-        --argjson lf "$lf_json" \
-        '.realitySettings.settings = {
-            publicKey: $public_key,
-            fingerprint: "chrome",
-            spiderX: ""
-        }
-        | .xhttpSettings.extra = $extra
-        | .realitySettings += $lf')
-    if [[ -z "$patched_stream" ]]; then
-        log_error "jq failed to patch stream settings (input may be malformed)"
-        exit 1
-    fi
-    local s_stream="${patched_stream//\'/\'\'}"
-    sqlite3 "$XUI_DB" \
-        "UPDATE inbounds SET stream_settings='${s_stream}' WHERE tag='inbound-443';"
-
-    log_ok "Relay inbound patched (subId + publicKey + XHTTP extra + Reality limitFallback)"
 }
 
 configure_3xui_subscription() {
