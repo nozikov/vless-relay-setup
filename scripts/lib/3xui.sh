@@ -264,6 +264,10 @@ configure_3xui_relay_template() {
 }
 
 create_3xui_relay_inbound() {
+    # relay_uuid is part of the documented positional signature but no longer
+    # consumed here — the inbound is created clientless and the caller adds the
+    # seed client (with this UUID) via xui_api_add_client.
+    # shellcheck disable=SC2034
     local relay_uuid="$1"
     local private_key="$2"
     local public_key="$3"
@@ -271,15 +275,13 @@ create_3xui_relay_inbound() {
     local dest="$5"
     local server_name="$6"
 
-    log_info "Creating VLESS Reality relay inbound in 3X-UI database..."
+    log_info "Creating VLESS Reality relay inbound via 3X-UI API..."
 
-    local sub_id settings stream_settings sniffing
-    sub_id="${7:-$(head -c 8 /dev/urandom | xxd -p)}"
+    local sub_id="${7:-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')}"
     local exit_ip="${8:-}"
     local xver="${9:-0}"
     local relay_xhttp_path="${10:-$(generate_random_path)}"
 
-    # Build inbound name from geo IP (fallback: "Relay → Exit")
     local relay_city exit_city remark
     relay_city=$(curl -s --max-time 3 "http://ip-api.com/json/?fields=city" | jq -r '.city // empty') || true
     if [[ -n "$exit_ip" ]]; then
@@ -287,34 +289,13 @@ create_3xui_relay_inbound() {
     fi
     remark="${relay_city:-Relay} → ${exit_city:-Exit}"
 
-    settings=$(jq -n -c \
-        --arg uuid "$relay_uuid" \
-        --arg sub_id "$sub_id" \
-        '{
-            clients: [{
-                id: $uuid,
-                flow: "",
-                email: "default-user",
-                limitIp: 0,
-                totalGB: 0,
-                expiryTime: 0,
-                enable: true,
-                subId: $sub_id,
-                tgId: "",
-                reset: 0
-            }],
-            decryption: "none",
-            fallbacks: []
-        }')
+    # Inbound is created WITHOUT clients; the seed client is added via the API
+    # (clients/add) so it lands in the normalized clients/client_inbounds tables.
+    local settings stream_settings sniffing extra_json lf_json
+    settings=$(jq -n -c '{clients: [], decryption: "none", fallbacks: []}')
 
-    # 3X-UI subscription generator reads publicKey and fingerprint
-    # from realitySettings.settings (nested), not from the top level.
-    # xhttpSettings.extra is emitted into VLESS subscription URLs (xmux etc
-    # are client-side hints — server ignores them on inbound).
-    local extra_json lf_json
     extra_json=$(xhttp_extra_json)
     lf_json=$(reality_limit_fallback_json)
-
     stream_settings=$(jq -n -c \
         --arg private_key "$private_key" \
         --arg public_key "$public_key" \
@@ -336,51 +317,33 @@ create_3xui_relay_inbound() {
                 privateKey: $private_key,
                 publicKey: $public_key,
                 shortIds: [$short_id],
-                settings: {
-                    publicKey: $public_key,
-                    fingerprint: "chrome",
-                    spiderX: ""
-                }
+                settings: { publicKey: $public_key, fingerprint: "chrome", spiderX: "" }
             } + $lf),
-            xhttpSettings: {
-                path: ("/"+$relay_path),
-                mode: "auto",
-                extra: $extra
-            }
+            xhttpSettings: { path: ("/"+$relay_path), mode: "auto", extra: $extra }
         }')
 
-    sniffing=$(jq -n -c '{
-        enabled: true,
-        destOverride: ["http","tls","quic"],
-        routeOnly: true
-    }')
+    sniffing=$(jq -n -c '{enabled: true, destOverride: ["http","tls","quic"], routeOnly: true}')
 
-    # Escape single quotes for SQLite
-    local s_settings="${settings//\'/\'\'}"
-    local s_stream="${stream_settings//\'/\'\'}"
-    local s_sniffing="${sniffing//\'/\'\'}"
+    # v3 inbounds/add: settings/streamSettings/sniffing are escaped JSON STRINGS.
+    local inbound_json
+    inbound_json=$(jq -n -c \
+        --arg remark "$remark" \
+        --arg settings "$settings" \
+        --arg stream "$stream_settings" \
+        --arg sniffing "$sniffing" \
+        '{
+            remark: $remark, port: 443, protocol: "vless",
+            enable: true, expiryTime: 0, total: 0, listen: "",
+            tag: "inbound-443",
+            settings: $settings, streamSettings: $stream, sniffing: $sniffing
+        }')
 
-    # Clean up any existing inbound with the same tag (e.g. --force reinstall) —
-    # вместе с осиротевшей строкой client_traffics seed-клиента.
-    sqlite3 "$XUI_DB" "DELETE FROM inbounds WHERE tag='inbound-443';" || true
-    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email='default-user';" || true
+    local inbound_id
+    inbound_id=$(xui_api_add_inbound "$inbound_json") || { log_error "Failed to create relay inbound"; return 1; }
 
-    sqlite3 "$XUI_DB" "INSERT INTO inbounds (
-        user_id, up, down, total, remark, enable, expiry_time,
-        listen, port, protocol, settings, stream_settings,
-        tag, sniffing
-    ) VALUES (
-        1, 0, 0, 0, '${remark//\'/\'\'}', 1, 0,
-        '', 443, 'vless', '${s_settings}', '${s_stream}',
-        'inbound-443', '${s_sniffing}'
-    );"
-
-    # Issue #38: client_traffics row нужен явно — 3X-UI не sync'ает
-    # settings.clients[] в эту таблицу при старте, только при add через UI/API.
-    ensure_client_traffics_row "default-user"
-
-    log_ok "VLESS Reality XHTTP relay inbound created (port 443, tag inbound-443)"
-    log_info "  Default client subId: $sub_id"
+    log_ok "VLESS Reality XHTTP relay inbound created (port 443, tag inbound-443, id $inbound_id)"
+    # echo id and sub_id for caller (to add the seed client)
+    printf '%s %s' "$inbound_id" "$sub_id"
 }
 
 # 3X-UI normalizes inbound JSON on first restart after INSERT, stripping
