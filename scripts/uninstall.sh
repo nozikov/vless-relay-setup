@@ -61,6 +61,7 @@ uninstall_3xui() {
     fi
 
     rm -rf /etc/x-ui/ 2>/dev/null || true
+    rm -rf /etc/vpn-cli/ 2>/dev/null || true
 }
 
 uninstall_xray() {
