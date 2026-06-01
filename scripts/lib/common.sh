@@ -163,7 +163,7 @@ xhttp_extra_json() {
 # Used in:
 #   - exit Reality inbound (xray.sh::configure_xray_exit)
 #   - relay Reality inbound (3xui.sh::create_3xui_relay_inbound)
-#   - relay re-add after 3X-UI normalize (3xui.sh::patch_3xui_relay_inbound)
+#   - relay inbound create via 3X-UI v3 REST API (xui-api.sh::xui_api_add_inbound)
 #   - update-relay.sh in-place merge into existing DB row
 reality_limit_fallback_json() {
     jq -n -c '{
