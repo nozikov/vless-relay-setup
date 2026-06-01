@@ -25,15 +25,22 @@ install_3xui() {
     ufw allow 80/tcp comment "ACME temp" > /dev/null 2>&1 || true
 
     # Pin 3X-UI to v3.1.0 and pull install.sh from the SAME tag (not master) so the
-    # interactive prompt set is stable. v3.x install.sh asks: (1) DB type [SQLite=1
-    # default], (2) SSL menu where empty→2 = Let's Encrypt IP cert (acme on :80,
-    # conflicts with Caddy). We must select 4 = Skip SSL. Build an explicit answer
-    # file rather than relying on blank lines. (Exact prompt order to be confirmed
-    # against a live v3.1.0 installer during verification.)
+    # interactive prompt set is stable. Verified against the v3.1.0 installer source
+    # (config_after_install / prompt_and_setup_ssl), the fresh-install prompt order is:
+    #   1. Database type        [Choose [1]:]        blank → 1 = SQLite
+    #   2. Customize panel port? [y/n]               blank → random port
+    #   3. SSL method            [Choose (default 2)] → 4 = Skip SSL
+    #      (blank here defaults to 2 = Let's Encrypt IP cert, which runs acme.sh on
+    #       :80 and collides with Caddy — must explicitly pick 4)
+    #   4. Bind panel to 127.0.0.1 only? [y/N]       blank → N (keep all-interfaces)
+    # The SSL prompt is the 3rd read, not the 2nd — feeding 4 too early lands it on the
+    # panel-port question and leaves SSL at its IP-cert default. Order matters.
     {
-        printf '\n'   # DB type: SQLite (default 1)
-        printf '4\n'  # SSL menu: Skip SSL
-        printf '\n%.0s' {1..98}  # any further prompts: accept defaults
+        printf '\n'   # 1. DB type            → SQLite (default 1)
+        printf '\n'   # 2. Customize port?    → no (random port)
+        printf '4\n'  # 3. SSL method         → Skip SSL
+        printf '\n'   # 4. Bind to 127.0.0.1? → N (all interfaces)
+        printf '\n%.0s' {1..96}  # any further/unexpected prompts: accept defaults
     } > /tmp/xui-answers
     bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
     rm -f /tmp/xui-answers
