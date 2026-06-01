@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/selfcheck.sh"
+source "$SCRIPT_DIR/lib/xui-api.sh"
 
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 XUI_DB="/etc/x-ui/x-ui.db"
@@ -126,6 +127,14 @@ run_selfcheck_relay() {
             rc=0; check_cert_expiry "$domain" || rc=$?
             case "$rc" in 1) _warns=$((_warns + 1)) ;; 2) _fails=$((_fails + 1)) ;; esac
         fi
+    fi
+
+    # API reachability (relay) — confirms Bearer token + panel API are live.
+    if xui_api_request GET "inbounds/list" >/dev/null 2>&1; then
+        log_ok "3X-UI panel API reachable (Bearer token valid)"
+    else
+        log_warn "3X-UI panel API not reachable / token invalid"
+        _warns=$((_warns + 1))
     fi
 
     log_info "=== Block 3 — outside probes ==="
