@@ -246,10 +246,6 @@ configure_3xui_relay_template() {
 }
 
 create_3xui_relay_inbound() {
-    # relay_uuid is part of the documented positional signature but no longer
-    # consumed here — the inbound is created clientless and the caller adds the
-    # seed client (with this UUID) via xui_api_add_client.
-    # shellcheck disable=SC2034
     local relay_uuid="$1"
     local private_key="$2"
     local public_key="$3"
@@ -322,10 +318,18 @@ create_3xui_relay_inbound() {
 
     local inbound_id
     inbound_id=$(xui_api_add_inbound "$inbound_json") || { log_error "Failed to create relay inbound"; return 1; }
-
     log_ok "VLESS Reality XHTTP relay inbound created (port 443, tag inbound-443, id $inbound_id)"
-    # echo id and sub_id for caller (to add the seed client)
-    printf '%s %s' "$inbound_id" "$sub_id"
+
+    # Add the seed default-user client via the API so it lands in the normalized
+    # clients/client_inbounds tables (fixes #44). Done here (not in the caller) so
+    # the inbound id stays internal and this function returns nothing on stdout —
+    # log_* write to stdout, which would otherwise pollute a captured return value.
+    local seed_client
+    seed_client=$(jq -n -c --arg id "$relay_uuid" --arg s "$sub_id" \
+        '{id:$id, email:"default-user", flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:0, reset:0, comment:""}')
+    xui_api_add_client "$inbound_id" "$seed_client" \
+        || { log_error "Failed to create seed client (default-user)"; return 1; }
+    log_ok "Seed client default-user created (subId $sub_id)"
 }
 
 configure_3xui_subscription() {
@@ -458,7 +462,7 @@ create_3xui_cdn_inbound() {
                 expiryTime: 0,
                 enable: true,
                 subId: $sub_id,
-                tgId: "",
+                tgId: 0,
                 reset: 0
             }],
             decryption: "none",
@@ -547,7 +551,7 @@ patch_3xui_cdn_inbound() {
     local patched_settings
     patched_settings=$(echo "$current_settings" | jq -c \
         --arg sub_id "$sub_id" \
-        '.clients[0].subId = $sub_id | .clients[0].tgId = "" | .clients[0].reset = 0')
+        '.clients[0].subId = $sub_id | .clients[0].tgId = 0 | .clients[0].reset = 0')
     local s_settings="${patched_settings//\'/\'\'}"
     sqlite3 "$XUI_DB" \
         "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-cdn';"
@@ -602,7 +606,7 @@ sync_cdn_clients() {
             local sub_id client_json
             sub_id=$(printf '%s' "$relay_clients" | jq -r --arg e "$email" 'first(.[]|select(.email==$e).subId)')
             client_json=$(jq -n -c --arg id "$exit_uuid" --arg e "$email" --arg s "$sub_id" \
-                '{id:$id, email:$e, flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:"", reset:0, comment:""}')
+                '{id:$id, email:$e, flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:0, reset:0, comment:""}')
             xui_api_add_client "$cdn_id" "$client_json" \
                 || log_warn "CDN sync: failed to add $email (continuing)"
         fi

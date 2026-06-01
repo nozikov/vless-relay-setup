@@ -309,22 +309,13 @@ main() {
         xui_api_request GET "inbounds/list" >/dev/null 2>&1 && break
     done
 
-    # Create the clientless inbound via API, then add the seed client via API so it
-    # lands in the normalized clients/client_inbounds tables (fixes #44).
-    local _created inbound_id created_sub_id
-    _created=$(create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
+    # Create the relay inbound and seed default-user via the API (both land in the
+    # normalized clients/client_inbounds tables — fixes #44). create_3xui_relay_inbound
+    # adds the seed client itself and returns nothing on stdout.
+    create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
         "$REALITY_PUBLIC_KEY" "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-        "$default_sub_id" "$exit_ip" "$xver" "$relay_xhttp_path") \
-        || { log_error "Relay inbound creation failed"; exit 1; }
-    inbound_id="${_created%% *}"
-    created_sub_id="${_created##* }"
-
-    local seed_client
-    seed_client=$(jq -n -c --arg id "$relay_uuid" --arg s "$created_sub_id" \
-        '{id:$id, email:"default-user", flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:"", reset:0, comment:""}')
-    xui_api_add_client "$inbound_id" "$seed_client" \
-        || { log_error "Seed client (default-user) creation failed"; exit 1; }
-    log_ok "Relay inbound + default-user created via API"
+        "$default_sub_id" "$exit_ip" "$xver" "$relay_xhttp_path" \
+        || { log_error "Relay inbound/seed-client creation failed"; exit 1; }
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
