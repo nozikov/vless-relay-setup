@@ -2,3 +2,4 @@
 .claude/
 docs/superpowers/
 .worktrees/
+.tmp-*
