@@ -2,13 +2,15 @@
 # 3X-UI panel installation and configuration
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/xui-api.sh"
 
 XUI_BIN="${XUI_MAIN_FOLDER:-/usr/local/x-ui}/x-ui"
 XUI_DB="/etc/x-ui/x-ui.db"
 
 # NOTE: client/inbound writes are delegated to lib/xui-api.sh (REST API on v3.x).
-# Callers that use create_3xui_relay_inbound/sync_cdn_clients MUST also
-# `source lib/xui-api.sh`. Verified by the lib-imports invariant.
+# This module sources xui-api.sh directly (same as common.sh) so create_3xui_relay_inbound
+# and sync_cdn_clients can call xui_api_*. Orchestration scripts that ALSO call xui_api_*
+# directly still source xui-api.sh themselves (enforced by the lib-imports invariant).
 
 # xhttp_extra_json() shared helper now lives in common.sh so xray.sh (exit)
 # and 3xui.sh (relay) use the same values. This prevents mismatch between
