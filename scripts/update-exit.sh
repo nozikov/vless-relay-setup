@@ -175,11 +175,14 @@ main() {
 
         if command -v x-ui &> /dev/null; then
             log_info "Upgrading 3X-UI..."
-            # Pinned to v2.8.11 — see scripts/lib/3xui.sh:install_3xui for rationale.
-            printf '\n%.0s' {1..100} > /tmp/xui-answers
-            bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh) v2.8.11 < /tmp/xui-answers
+            # Pinned to v3.1.0 — see scripts/lib/3xui.sh:install_3xui. Skip-SSL (option 4).
+            # Exit panel is decorative (real exit xray is standalone) — no API migration needed.
+            {
+                printf '\n'; printf '4\n'; printf '\n%.0s' {1..98}
+            } > /tmp/xui-answers
+            bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
             rm -f /tmp/xui-answers
-            log_ok "3X-UI upgraded"
+            log_ok "3X-UI upgraded to v3.1.0"
         fi
 
         if [[ "$is_selfsteal" == true ]]; then
