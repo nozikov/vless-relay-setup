@@ -6,6 +6,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 XUI_BIN="${XUI_MAIN_FOLDER:-/usr/local/x-ui}/x-ui"
 XUI_DB="/etc/x-ui/x-ui.db"
 
+# NOTE: client/inbound writes are delegated to lib/xui-api.sh (REST API on v3.x).
+# Callers that use create_3xui_relay_inbound/sync_cdn_clients MUST also
+# `source lib/xui-api.sh`. Verified by the lib-imports invariant.
+
 # xhttp_extra_json() shared helper now lives in common.sh so xray.sh (exit)
 # and 3xui.sh (relay) use the same values. This prevents mismatch between
 # relay outbound scMaxEachPostBytes and exit inbound cap.
