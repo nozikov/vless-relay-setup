@@ -554,68 +554,59 @@ patch_3xui_cdn_inbound() {
 }
 
 sync_cdn_clients() {
-    log_info "Syncing clients to CDN inbound..."
+    log_info "Syncing clients to CDN inbound (via API)..."
 
-    # Check CDN inbound exists
-    local cdn_exists
-    cdn_exists=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM inbounds WHERE tag='inbound-cdn';") || true
-    if [[ "$cdn_exists" != "1" ]]; then
+    local cdn_id exit_uuid
+    cdn_id=$(xui_api_inbound_id "inbound-cdn") || true
+    if [[ -z "$cdn_id" ]]; then
         log_warn "CDN inbound not found, nothing to sync"
         return 0
     fi
 
-    # Get exit UUID from CDN inbound (it's the shared UUID for all CDN clients)
-    local exit_uuid
-    exit_uuid=$(sqlite3 "$XUI_DB" \
-        "SELECT settings FROM inbounds WHERE tag='inbound-cdn';" | \
-        jq -r '.clients[0].id') || true
-    if [[ -z "$exit_uuid" || "$exit_uuid" == "null" ]]; then
-        log_error "Cannot read exit UUID from CDN inbound"
-        return 1
-    fi
-
-    # Get all clients from relay inbound (subId + email)
-    local relay_clients
-    relay_clients=$(sqlite3 "$XUI_DB" \
-        "SELECT settings FROM inbounds WHERE tag='inbound-443';" | \
-        jq -c '[.clients[] | {subId: .subId, email: .email, enable: .enable}]') || true
-    if [[ -z "$relay_clients" || "$relay_clients" == "null" ]]; then
-        log_warn "No clients found in relay inbound"
+    # Shared exit UUID = the UUID of the existing CDN inbound's client set.
+    # Read it from the CDN inbound's settings JSON (read-only, sqlite is fine).
+    exit_uuid=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='inbound-cdn';" \
+        | jq -r 'first(.clients[]?.id) // empty') || true
+    if [[ -z "$exit_uuid" ]]; then
+        log_warn "Cannot determine CDN exit UUID — skipping CDN sync"
         return 0
     fi
 
-    # Build new clients array: same subIds/emails but all with exit UUID
-    local cdn_clients
-    cdn_clients=$(echo "$relay_clients" | jq -c \
-        --arg uuid "$exit_uuid" \
-        '[.[] | {
-            id: $uuid,
-            email: (.email + "-cdn"),
-            limitIp: 0,
-            totalGB: 0,
-            expiryTime: 0,
-            enable: .enable,
-            subId: .subId,
-            tgId: "",
-            reset: 0
-        }]')
+    # Desired: one "<email>-cdn" per relay client, same subId, exit UUID.
+    local relay_clients
+    relay_clients=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='inbound-443';" \
+        | jq -c '[.clients[]? | {email: (.email + "-cdn"), subId: .subId, enable: .enable}]') || true
+    [[ -z "$relay_clients" || "$relay_clients" == "null" ]] && relay_clients='[]'
 
-    # Update CDN inbound settings with synced clients
-    local cdn_settings
-    cdn_settings=$(sqlite3 "$XUI_DB" \
-        "SELECT settings FROM inbounds WHERE tag='inbound-cdn';")
-    local updated_settings
-    updated_settings=$(echo "$cdn_settings" | jq -c \
-        --argjson clients "$cdn_clients" \
-        '.clients = $clients')
-    local s_settings="${updated_settings//\'/\'\'}"
-    sqlite3 "$XUI_DB" \
-        "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-cdn';"
+    # Current CDN client emails (from clients/list, filtered to the "-cdn" convention).
+    local current_cdn
+    current_cdn=$(xui_api_list_clients | jq -c '[.[]? | select(.email|endswith("-cdn")) | .email]') || current_cdn='[]'
 
-    local count
-    count=$(echo "$cdn_clients" | jq 'length')
-    log_ok "CDN inbound synced ($count clients)"
+    # Add missing.
+    local desired_emails email
+    desired_emails=$(printf '%s' "$relay_clients" | jq -r '.[].email')
+    while IFS= read -r email; do
+        [[ -z "$email" ]] && continue
+        if ! printf '%s' "$current_cdn" | jq -e --arg e "$email" 'index($e) != null' >/dev/null; then
+            local sub_id client_json
+            sub_id=$(printf '%s' "$relay_clients" | jq -r --arg e "$email" 'first(.[]|select(.email==$e).subId)')
+            client_json=$(jq -n -c --arg id "$exit_uuid" --arg e "$email" --arg s "$sub_id" \
+                '{id:$id, email:$e, flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:"", reset:0, comment:""}')
+            xui_api_add_client "$cdn_id" "$client_json" \
+                || log_warn "CDN sync: failed to add $email (continuing)"
+        fi
+    done <<< "$desired_emails"
+
+    # Remove extra (present on CDN but no matching relay client).
+    local cur_email
+    while IFS= read -r cur_email; do
+        [[ -z "$cur_email" ]] && continue
+        if ! printf '%s' "$relay_clients" | jq -e --arg e "$cur_email" 'any(.[]; .email==$e)' >/dev/null; then
+            xui_api_del_client "$cur_email" || log_warn "CDN sync: failed to remove $cur_email"
+        fi
+    done < <(printf '%s' "$current_cdn" | jq -r '.[]')
+
+    log_ok "CDN inbound synced (via API)"
 }
 
 # Идемпотентная установка симлинка /usr/local/bin/vpn → <path-to-vpn>.
