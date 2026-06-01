@@ -8,6 +8,7 @@ source "$SCRIPT_DIR/lib/security.sh"
 source "$SCRIPT_DIR/lib/reality.sh"
 source "$SCRIPT_DIR/lib/xray.sh"
 source "$SCRIPT_DIR/lib/3xui.sh"
+source "$SCRIPT_DIR/lib/xui-api.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
 
@@ -291,23 +292,39 @@ main() {
     local xver=0
     [[ -n "$selfsteal_domain" ]] && xver=1
 
-    create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
-        "$REALITY_PUBLIC_KEY" "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
-        "$default_sub_id" "$exit_ip" "$xver" "$relay_xhttp_path"
-
+    # Write API token + xray template while x-ui is STOPPED, so both load fresh on
+    # start (avoids the in-memory-flush overwrite + template-stripping traps), then
+    # do all inbound/client work via the live REST API (live gRPC, no restart needed).
+    x-ui stop
+    bootstrap_api_token
     configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
         "$exit_pubkey" "$exit_short_id" "$exit_sni"
+    x-ui start
+    log_ok "3X-UI started with template + API token loaded"
 
-    # First restart: 3X-UI loads inbound + template, normalizes inbound JSON
-    x-ui restart
-    log_ok "3X-UI restarted with relay inbound and routing"
+    # Wait for the panel API to come up before driving it.
+    local _try
+    for _try in 1 2 3 4 5 6 7 8 9 10; do
+        sleep 1
+        xui_api_request GET "inbounds/list" >/dev/null 2>&1 && break
+    done
 
-    # Patch fields that 3X-UI strips on normalization (subId, publicKey for subscriptions)
-    patch_3xui_relay_inbound "$default_sub_id" "$REALITY_PUBLIC_KEY"
+    # Create the clientless inbound via API, then add the seed client via API so it
+    # lands in the normalized clients/client_inbounds tables (fixes #44).
+    local _created inbound_id created_sub_id
+    _created=$(create_3xui_relay_inbound "$relay_uuid" "$REALITY_PRIVATE_KEY" \
+        "$REALITY_PUBLIC_KEY" "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
+        "$default_sub_id" "$exit_ip" "$xver" "$relay_xhttp_path") \
+        || { log_error "Relay inbound creation failed"; exit 1; }
+    inbound_id="${_created%% *}"
+    created_sub_id="${_created##* }"
 
-    # Final restart: xray picks up patched config
-    x-ui restart
-    log_ok "3X-UI restarted with patched subscription fields"
+    local seed_client
+    seed_client=$(jq -n -c --arg id "$relay_uuid" --arg s "$created_sub_id" \
+        '{id:$id, email:"default-user", flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:"", reset:0, comment:""}')
+    xui_api_add_client "$inbound_id" "$seed_client" \
+        || { log_error "Seed client (default-user) creation failed"; exit 1; }
+    log_ok "Relay inbound + default-user created via API"
 
     # --- Step 6: Security ---
     log_info "=== Security Setup ==="
