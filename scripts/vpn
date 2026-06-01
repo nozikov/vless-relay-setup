@@ -12,11 +12,12 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_REAL")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
 # shellcheck source=lib/3xui.sh
 source "$SCRIPT_DIR/lib/3xui.sh"
+# shellcheck source=lib/xui-api.sh
+source "$SCRIPT_DIR/lib/xui-api.sh"
 
 XUI_DB="/etc/x-ui/x-ui.db"
 INBOUND_TAG="inbound-443"
 NAME_REGEX='^[a-zA-Z0-9_-]{1,32}$'
-BACKUP_DIR="/var/lib/vpn-cli"
 
 usage() {
     cat <<EOF
@@ -64,35 +65,6 @@ get_subscription_prefix() {
     return 1
 }
 
-# Persistent backup перед DB-mutation: пишем JSON settings в файл,
-# чтобы при Ctrl-C / OOM / падении rollback можно было восстановить руками.
-persist_backup() {
-    local settings="$1"
-    local op="$2"
-    install -d -m 0700 "$BACKUP_DIR"
-    local ts file
-    ts=$(date +%Y%m%d-%H%M%S)
-    file="$BACKUP_DIR/backup-${op}-${ts}.json"
-    printf '%s\n' "$settings" > "$file"
-    chmod 0600 "$file"
-    echo "$file"
-}
-
-# Auto-rollback helper — восстанавливает settings и рестартит x-ui после неудачи.
-# Если сам UPDATE падает — печатаем явный путь к persistent backup.
-rollback_settings() {
-    local backup="$1"
-    local backup_file="$2"
-    log_error "xray not listening on :443 — rolling back"
-    local s_backup="${backup//\'/\'\'}"
-    x-ui stop > /dev/null 2>&1 || true
-    if ! sqlite3 "$XUI_DB" "UPDATE inbounds SET settings='${s_backup}' WHERE tag='$INBOUND_TAG';" 2>/dev/null; then
-        log_error "ROLLBACK FAILED — manual recovery needed. Backup saved at: $backup_file"
-        log_error "  Restore: sqlite3 $XUI_DB \"UPDATE inbounds SET settings='\$(cat $backup_file)' WHERE tag='$INBOUND_TAG';\""
-    fi
-    x-ui start > /dev/null 2>&1
-}
-
 # Health check — ждём что xray забиндил :443 и процесс xray жив.
 # 15 итераций по 1с — xray внутри 3X-UI стартует медленнее самого x-ui.
 wait_xray_listening() {
@@ -118,53 +90,33 @@ cmd_add() {
         exit 1
     fi
 
-    # Уникальность (null-safe через .clients[]?)
+    # Uniqueness — read clients via API (normalized source of truth on v3).
     local existing
-    existing=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
-        | jq -r --arg name "$name" '.clients[]? | select(.email == $name) | .id') || true
+    existing=$(xui_api_list_clients | jq -r --arg n "$name" 'first(.[]?|select(.email==$n).email) // empty') || true
     if [[ -n "$existing" ]]; then
-        log_error "Client '$name' already exists (UUID $existing)"
+        log_error "Client '$name' already exists"
         exit 1
     fi
 
-    local uuid sub_id
+    local uuid sub_id inbound_id
     uuid=$(cat /proc/sys/kernel/random/uuid)
     sub_id=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+    inbound_id=$(xui_api_inbound_id "$INBOUND_TAG") || { log_error "Relay inbound not found"; exit 1; }
+    if [[ -z "$inbound_id" ]]; then log_error "Relay inbound '$INBOUND_TAG' not found"; exit 1; fi
 
     log_info "Adding client '$name' (UUID: $uuid)"
 
-    local backup_settings backup_file
-    backup_settings=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';")
-    backup_file=$(persist_backup "$backup_settings" "add-$name")
+    local client_json
+    client_json=$(jq -n -c --arg id "$uuid" --arg n "$name" --arg s "$sub_id" \
+        '{id:$id, email:$n, flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:"", reset:0, comment:""}')
+    xui_api_add_client "$inbound_id" "$client_json" || { log_error "Failed to add client via API"; exit 2; }
 
-    x-ui stop > /dev/null 2>&1 || true
-
-    local new_settings
-    new_settings=$(printf '%s' "$backup_settings" | jq -c \
-        --arg uuid "$uuid" --arg name "$name" --arg sub_id "$sub_id" \
-        '.clients += [{
-            id: $uuid, flow: "", email: $name,
-            limitIp: 0, totalGB: 0, expiryTime: 0,
-            enable: true, subId: $sub_id, tgId: "", reset: 0
-        }]')
-    local s_settings="${new_settings//\'/\'\'}"
-    sqlite3 "$XUI_DB" "UPDATE inbounds SET settings='${s_settings}' WHERE tag='$INBOUND_TAG';"
-
-    x-ui start > /dev/null 2>&1
-
+    # Verify xray still serving (API add does live gRPC inject).
     if ! wait_xray_listening; then
-        rollback_settings "$backup_settings" "$backup_file"
-        exit 2
+        log_warn "xray not listening on :443 after add — check 'x-ui log'"
     fi
 
-    # client_traffics row (issue #38) — симметрично с DELETE в cmd_remove.
-    # После успешного start: если упадёт — клиент уже в inbound, трафик просто
-    # будет lazy-создан 3X-UI'ем при первом stats update.
-    ensure_client_traffics_row "$name" || \
-        log_warn "client_traffics row insert failed (non-fatal) — UI traffic for '$name' may show '—'"
-
-    # CDN sync — после успешного start. sync_cdn_clients идемпотентный,
-    # rollback при его падении не нужен (relay-канал работает, CDN опционален).
+    # CDN sync — idempotent, non-fatal.
     sync_cdn_clients || log_warn "CDN sync failed (non-fatal) — re-run 'vpn add' or 'update-relay' to retry"
 
     local prefix link
@@ -173,62 +125,47 @@ cmd_add() {
     log_ok "Added client '$name' (UUID: $uuid)"
     echo ""
     echo "Subscription: $link"
-
-    rm -f "$backup_file"
 }
 
 cmd_list() {
-    local clients_json
-    clients_json=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
-        | jq -c '.clients // []') || {
-            log_error "Cannot read clients from $XUI_DB"; exit 1
-        }
-
-    local count
-    count=$(printf '%s' "$clients_json" | jq 'length')
-    if [[ "$count" -eq 0 ]]; then
+    local rows
+    rows=$(sqlite3 -separator $'\t' "$XUI_DB" \
+        "SELECT email, uuid, enable FROM clients ORDER BY email;" 2>/dev/null) || {
+            log_error "Cannot read clients from $XUI_DB"; exit 1; }
+    if [[ -z "$rows" ]]; then
         echo "No clients."
         return
     fi
-
     {
         printf 'NAME\tUUID\tENABLE\tUP\tDOWN\n'
-        printf '%s' "$clients_json" \
-            | jq -r '.[] | [.email, .id, (if .enable then "yes" else "no" end)] | @tsv' \
-            | while IFS=$'\t' read -r email uuid enable; do
-                local traffic up down up_h down_h
-                up=0
-                down=0
-                traffic=$(sqlite3 -separator $'\t' "$XUI_DB" \
-                    "SELECT up, down FROM client_traffics WHERE email='${email//\'/\'\'}';" 2>/dev/null) || true
-                if [[ -n "$traffic" ]]; then
-                    up=$(printf '%s' "$traffic" | cut -f1)
-                    down=$(printf '%s' "$traffic" | cut -f2)
-                fi
-                [[ "$up" =~ ^[0-9]+$ ]] || up=0
-                [[ "$down" =~ ^[0-9]+$ ]] || down=0
-                up_h=$(numfmt --to=iec --suffix=B "$up" 2>/dev/null || echo "${up}B")
-                down_h=$(numfmt --to=iec --suffix=B "$down" 2>/dev/null || echo "${down}B")
-                printf '%s\t%s\t%s\t%s\t%s\n' "$email" "$uuid" "$enable" "$up_h" "$down_h"
-            done
+        while IFS=$'\t' read -r email uuid enable; do
+            [[ -z "$email" ]] && continue
+            local traffic up=0 down=0 up_h down_h en="no"
+            [[ "$enable" == "1" ]] && en="yes"
+            traffic=$(sqlite3 -separator $'\t' "$XUI_DB" \
+                "SELECT up, down FROM client_traffics WHERE email='${email//\'/\'\'}';" 2>/dev/null) || true
+            if [[ -n "$traffic" ]]; then
+                up=$(printf '%s' "$traffic" | cut -f1); down=$(printf '%s' "$traffic" | cut -f2)
+            fi
+            [[ "$up" =~ ^[0-9]+$ ]] || up=0
+            [[ "$down" =~ ^[0-9]+$ ]] || down=0
+            up_h=$(numfmt --to=iec --suffix=B "$up" 2>/dev/null || echo "${up}B")
+            down_h=$(numfmt --to=iec --suffix=B "$down" 2>/dev/null || echo "${down}B")
+            printf '%s\t%s\t%s\t%s\t%s\n' "$email" "$uuid" "$en" "$up_h" "$down_h"
+        done <<< "$rows"
     } | column -t -s$'\t'
 }
 
 cmd_link() {
     local name="${1:-}"
     if [[ -z "$name" ]]; then log_error "Usage: vpn link <name>"; exit 1; fi
-
-    # first(...) — берём только первое совпадение если вдруг панель дала
-    # двух клиентов с одинаковым email.
     local sub_id
-    sub_id=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
-        | jq -r --arg name "$name" \
-            'first(.clients[]? | select(.email == $name) | .subId) // empty')
+    sub_id=$(sqlite3 "$XUI_DB" \
+        "SELECT sub_id FROM clients WHERE email='${name//\'/\'\'}' LIMIT 1;" 2>/dev/null) || true
     if [[ -z "$sub_id" ]]; then
         log_error "Client '$name' not found"
         exit 1
     fi
-
     local prefix
     prefix=$(get_subscription_prefix)
     echo "${prefix}${sub_id}"
@@ -250,11 +187,9 @@ cmd_remove() {
         exit 1
     fi
 
-    local uuid
-    uuid=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';" \
-        | jq -r --arg name "$name" \
-            'first(.clients[]? | select(.email == $name) | .id) // empty')
-    if [[ -z "$uuid" ]]; then
+    local found
+    found=$(xui_api_list_clients | jq -r --arg n "$name" 'first(.[]?|select(.email==$n).email) // empty') || true
+    if [[ -z "$found" ]]; then
         log_error "Client '$name' not found"
         exit 1
     fi
@@ -265,40 +200,22 @@ cmd_remove() {
             exit 1
         fi
         local reply
-        read -rp "Remove '$name' (UUID $uuid)? [y/N] " reply
+        read -rp "Remove '$name'? [y/N] " reply
         if [[ "$reply" != "y" && "$reply" != "Y" ]]; then
             log_info "Aborted."
             return
         fi
     fi
 
-    local backup_settings backup_file
-    backup_settings=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='$INBOUND_TAG';")
-    backup_file=$(persist_backup "$backup_settings" "remove-$name")
-
-    x-ui stop > /dev/null 2>&1 || true
-
-    local new_settings
-    new_settings=$(printf '%s' "$backup_settings" | jq -c \
-        --arg name "$name" \
-        '.clients |= map(select(.email != $name))')
-    local s_settings="${new_settings//\'/\'\'}"
-    sqlite3 "$XUI_DB" "UPDATE inbounds SET settings='${s_settings}' WHERE tag='$INBOUND_TAG';"
-
-    x-ui start > /dev/null 2>&1
+    xui_api_del_client "$name" || { log_error "Failed to remove client via API"; exit 2; }
 
     if ! wait_xray_listening; then
-        rollback_settings "$backup_settings" "$backup_file"
-        exit 2
+        log_warn "xray not listening on :443 after remove — check 'x-ui log'"
     fi
 
-    # После успешного start: CDN sync + чистка traffic stats.
-    # Если что-то здесь упадёт — клиент уже удалён из inbound-443, не страшно.
     sync_cdn_clients || log_warn "CDN sync failed (non-fatal) — re-run 'update-relay' to retry"
-    sqlite3 "$XUI_DB" "DELETE FROM client_traffics WHERE email='${name//\'/\'\'}';" || true
 
     log_ok "Removed client '$name'"
-    rm -f "$backup_file"
 }
 
 main() {
