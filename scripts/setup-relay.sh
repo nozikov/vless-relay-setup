@@ -11,14 +11,17 @@ source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/xui-api.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
+source "$SCRIPT_DIR/lib/wireguard.sh"
 
 main() {
-    local force=false skip_ssh=false
-    for arg in "$@"; do
-        case "$arg" in
+    local force=false skip_ssh=false wg_conf_path=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
             --force) force=true ;;
             --skip-ssh) skip_ssh=true ;;
+            --wg-conf) wg_conf_path="${2:-}"; shift ;;
         esac
+        shift
     done
 
     echo "==========================================="
@@ -41,49 +44,121 @@ main() {
         exit 1
     fi
 
-    # --- Step 1: Exit server details ---
-    log_info "=== Exit Server Connection Details ==="
-    echo "Enter the values from exit server setup:"
-    echo ""
+    # --- Step 1: Exit backhaul ---
+    log_info "=== Exit Backhaul ==="
 
-    local exit_ip exit_port exit_uuid exit_pubkey exit_short_id exit_sni
-    exit_port=443
-    prompt_input "Exit server IP" exit_ip
-    prompt_input "Exit server UUID" exit_uuid
-    prompt_input "Exit server Reality public key" exit_pubkey
-    prompt_input "Exit server Reality short ID" exit_short_id
-    prompt_input "Exit server Reality SNI" exit_sni
-
+    local backhaul_mode="vless" backhaul_choice=""
+    local exit_ip="" exit_port=443 exit_uuid="" exit_pubkey="" exit_short_id="" exit_sni=""
     local cdn_domain="" cdn_path=""
-    prompt_input "Exit CDN domain (Enter if not configured)" cdn_domain ""
-    if [[ -n "$cdn_domain" ]]; then
-        if ! validate_domain "$cdn_domain"; then
-            log_error "Invalid domain format: $cdn_domain"
-            exit 1
-        fi
-        prompt_input "Exit CDN path (from exit-server-info.txt CDN_PATH)" cdn_path
-        validate_not_empty "$cdn_path" "CDN path" || exit 1
-    fi
-
     local hysteria_port="" hysteria_port_end="" hysteria_obfs=""
-    prompt_input "Exit Hysteria 2 port (Enter if not configured)" hysteria_port ""
-    if [[ -n "$hysteria_port" ]]; then
-        if ! [[ "$hysteria_port" =~ ^[0-9]+$ ]] || [[ "$hysteria_port" -lt 1024 || "$hysteria_port" -gt 64535 ]]; then
-            log_error "Invalid Hysteria port: $hysteria_port (must be 1024-64535)"
-            exit 1
-        fi
-        hysteria_port_end=$((hysteria_port + 1000))
-        log_info "Hysteria 2: UDP ${hysteria_port}-${hysteria_port_end}, Salamander enabled"
-        prompt_input "Exit Hysteria 2 obfs password" hysteria_obfs
-        validate_not_empty "$hysteria_obfs" "Hysteria obfs password" || exit 1
+    local wg_private_key="" wg_address="" wg_peer_pubkey="" wg_endpoint=""
+    local wg_allowed_ips="0.0.0.0/0" wg_keepalive="25" wg_mtu="1380" wg_lan_allow=""
+
+    if [[ -n "$wg_conf_path" ]]; then
+        log_info "--wg-conf given — WireGuard-to-external-peer backhaul selected"
+        backhaul_mode="wireguard"
+    else
+        echo "How should this relay reach the internet?"
+        echo "  1) VLESS+Reality to an exit VPS set up by this project [default]"
+        echo "  2) WireGuard to an externally-managed peer (e.g. home router)"
+        prompt_input "Backhaul mode" backhaul_choice "1"
+        case "$backhaul_choice" in
+            1|vless)        backhaul_mode="vless" ;;
+            2|wireguard|wg) backhaul_mode="wireguard" ;;
+            *) log_error "Invalid backhaul choice: $backhaul_choice"; exit 1 ;;
+        esac
     fi
 
-    # Validate exit server inputs
-    validate_ip "$exit_ip" || { log_error "Invalid IP address: $exit_ip"; exit 1; }
-    validate_uuid "$exit_uuid" || { log_error "Invalid UUID format: $exit_uuid"; exit 1; }
-    validate_not_empty "$exit_pubkey" "Exit public key" || exit 1
-    validate_not_empty "$exit_short_id" "Exit short ID" || exit 1
-    validate_not_empty "$exit_sni" "Exit SNI" || exit 1
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        # WG peer values come from the router's own peer-creation UI (out of
+        # this repo's scope). CDN/Hysteria/Direct-Exit prompts don't apply —
+        # they all assume a VPS exit reachable inbound on 443.
+        log_info "=== WireGuard Peer Details ==="
+        echo "Enter the values from the WireGuard peer created on the router:"
+        echo ""
+
+        if [[ -z "$wg_conf_path" ]]; then
+            prompt_input "Path to WireGuard .conf (Enter to type values manually)" wg_conf_path ""
+        fi
+        if [[ -n "$wg_conf_path" ]]; then
+            parse_wg_conf "$wg_conf_path" || exit 1
+            wg_private_key="$WG_PRIVATE_KEY"
+            wg_address="$WG_ADDRESS"
+            wg_peer_pubkey="$WG_PEER_PUBKEY"
+            wg_endpoint="$WG_ENDPOINT"
+            wg_allowed_ips="$WG_ALLOWED_IPS"
+            wg_keepalive="$WG_KEEPALIVE"
+            wg_mtu="$WG_MTU"
+            local wg_confirm=""
+            prompt_input "Use these values? [Y/n]" wg_confirm "Y"
+            if [[ ! "$wg_confirm" =~ ^[Yy]$ ]]; then
+                log_error "Aborted by user"
+                exit 1
+            fi
+        else
+            prompt_input "Relay WireGuard private key (from the router-generated config)" wg_private_key
+            prompt_input "Relay tunnel address (assigned by the router, e.g. 192.168.2.4/32)" wg_address
+            prompt_input "Router WireGuard public key" wg_peer_pubkey
+            prompt_input "Router WireGuard endpoint host:port (DDNS hostname is fine, e.g. myhome.mooo.com:8264)" wg_endpoint
+            prompt_input "Allowed IPs" wg_allowed_ips "0.0.0.0/0"
+            prompt_input "Persistent keepalive (seconds)" wg_keepalive "25"
+            prompt_input "Tunnel MTU" wg_mtu "1380"
+        fi
+
+        # Static-shape validation — a parsed .conf is not trusted to be well-formed
+        validate_wg_peer_params "$wg_private_key" "$wg_address" "$wg_peer_pubkey" \
+            "$wg_endpoint" "$wg_keepalive" "$wg_mtu" || exit 1
+
+        # LAN-exception allow-list: narrow per-host holes in the relay-side
+        # geoip:private block, e.g. the router admin panel at 192.168.2.1.
+        echo ""
+        echo "LAN hosts to allow through the tunnel (remote access to devices behind"
+        echo "the router, e.g. the router admin panel at 192.168.2.1). Everything"
+        echo "private not listed here stays blocked on the relay side."
+        local wg_lan_allow_raw=""
+        prompt_input "Comma-separated IPs/CIDRs (Enter for none)" wg_lan_allow_raw ""
+        if [[ -n "$wg_lan_allow_raw" ]]; then
+            wg_lan_allow=$(validate_wg_lan_allow "$wg_lan_allow_raw") || exit 1
+        fi
+    else
+        echo "Enter the values from exit server setup:"
+        echo ""
+
+        prompt_input "Exit server IP" exit_ip
+        prompt_input "Exit server UUID" exit_uuid
+        prompt_input "Exit server Reality public key" exit_pubkey
+        prompt_input "Exit server Reality short ID" exit_short_id
+        prompt_input "Exit server Reality SNI" exit_sni
+
+        prompt_input "Exit CDN domain (Enter if not configured)" cdn_domain ""
+        if [[ -n "$cdn_domain" ]]; then
+            if ! validate_domain "$cdn_domain"; then
+                log_error "Invalid domain format: $cdn_domain"
+                exit 1
+            fi
+            prompt_input "Exit CDN path (from exit-server-info.txt CDN_PATH)" cdn_path
+            validate_not_empty "$cdn_path" "CDN path" || exit 1
+        fi
+
+        prompt_input "Exit Hysteria 2 port (Enter if not configured)" hysteria_port ""
+        if [[ -n "$hysteria_port" ]]; then
+            if ! [[ "$hysteria_port" =~ ^[0-9]+$ ]] || [[ "$hysteria_port" -lt 1024 || "$hysteria_port" -gt 64535 ]]; then
+                log_error "Invalid Hysteria port: $hysteria_port (must be 1024-64535)"
+                exit 1
+            fi
+            hysteria_port_end=$((hysteria_port + 1000))
+            log_info "Hysteria 2: UDP ${hysteria_port}-${hysteria_port_end}, Salamander enabled"
+            prompt_input "Exit Hysteria 2 obfs password" hysteria_obfs
+            validate_not_empty "$hysteria_obfs" "Hysteria obfs password" || exit 1
+        fi
+
+        # Validate exit server inputs
+        validate_ip "$exit_ip" || { log_error "Invalid IP address: $exit_ip"; exit 1; }
+        validate_uuid "$exit_uuid" || { log_error "Invalid UUID format: $exit_uuid"; exit 1; }
+        validate_not_empty "$exit_pubkey" "Exit public key" || exit 1
+        validate_not_empty "$exit_short_id" "Exit short ID" || exit 1
+        validate_not_empty "$exit_sni" "Exit SNI" || exit 1
+    fi
 
     # --- Step 2: Relay configuration ---
     log_info "=== Relay Configuration ==="
@@ -144,6 +219,20 @@ main() {
     # --- Step 4: Install XRAY (for key generation only) ---
     log_info "=== XRAY Setup ==="
     install_xray
+
+    # WG pre-flight: hard gate BEFORE any relay config exists. A throwaway
+    # userspace xray tunnel must handshake and egress with the collected peer
+    # values — a transposed key or wrong endpoint fails fast here, not after
+    # 3X-UI is installed and the template written.
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        log_info "=== WireGuard Backhaul Pre-flight ==="
+        if ! wg_dry_run "$wg_private_key" "$wg_address" "$wg_peer_pubkey" \
+            "$wg_endpoint" "$wg_allowed_ips" "$wg_keepalive" "$wg_mtu"; then
+            log_error "WireGuard pre-flight failed — aborting before any relay config is written."
+            log_error "Fix the peer values (compare against the router's WireGuard peer config) and re-run."
+            exit 1
+        fi
+    fi
 
     if [[ -n "$selfsteal_domain" ]]; then
         # SelfSteal mode
@@ -302,8 +391,14 @@ main() {
     # do all inbound/client work via the live REST API (live gRPC, no restart needed).
     x-ui stop
     bootstrap_api_token
-    configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
-        "$exit_pubkey" "$exit_short_id" "$exit_sni"
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        configure_3xui_relay_template wireguard "$wg_private_key" "$wg_address" \
+            "$wg_peer_pubkey" "$wg_endpoint" "$wg_allowed_ips" "$wg_keepalive" \
+            "$wg_mtu" "$wg_lan_allow"
+    else
+        configure_3xui_relay_template vless "$exit_ip" "$exit_port" "$exit_uuid" \
+            "$exit_pubkey" "$exit_short_id" "$exit_sni"
+    fi
     x-ui start
     log_ok "3X-UI started with template + API token loaded"
 
@@ -355,10 +450,34 @@ main() {
     echo "==========================================="
     echo ""
     echo "  Server:    ${server_ip}"
-    echo "  Protocol:  VLESS + Reality (XHTTP) → Exit (XHTTP)"
-    echo "  Port:      443"
-    echo "  Exit:      ${exit_ip}"
-    echo ""
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        echo "  Protocol:  VLESS + Reality (XHTTP) → WireGuard peer"
+        echo "  Port:      443"
+        echo "  Exit:      ${wg_endpoint} (WireGuard, externally managed)"
+        [[ -n "${WG_DRY_RUN_EGRESS_IP:-}" ]] && echo "  Egress IP: ${WG_DRY_RUN_EGRESS_IP}"
+        echo ""
+        echo "  NOTE: Direct Exit / CDN Fallback / Hysteria 2 channels do not apply"
+        echo "  in WireGuard mode — only the relay channel exists in subscriptions."
+        echo ""
+        if [[ -n "$wg_lan_allow" ]]; then
+            echo "  LAN hosts allowed through the tunnel: ${wg_lan_allow}"
+        fi
+        echo "  This relay blocks private-IP destinations through the tunnel"
+        if [[ -n "$wg_lan_allow" ]]; then
+            echo "  except the LAN hosts allow-listed above. You MUST also scope the"
+            echo "  router-side WireGuard peer to WAN egress plus exactly those hosts"
+        else
+            echo "  (no LAN exceptions). You SHOULD also scope the router-side"
+            echo "  WireGuard peer to WAN egress only"
+        fi
+        echo "  — this repo cannot enforce the router side."
+        echo ""
+    else
+        echo "  Protocol:  VLESS + Reality (XHTTP) → Exit (RAW + Vision)"
+        echo "  Port:      443"
+        echo "  Exit:      ${exit_ip}"
+        echo ""
+    fi
 
     if [[ -n "$selfsteal_domain" ]]; then
         echo "  SelfSteal: ${selfsteal_domain}"
