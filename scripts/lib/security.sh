@@ -28,13 +28,52 @@ setup_ssh_hardening() {
         log_info "SSH port changed to $ssh_port"
     fi
 
+    # Ubuntu 22.10+/24.04 socket-activate SSH via ssh.socket, which OWNS the
+    # listening port (ListenStream=22) and makes sshd ignore sshd_config's Port
+    # directive. Editing Port + restarting ssh.service silently leaves the
+    # daemon on 22 — and once UFW closes 22, that is a lockout. Revert to the
+    # traditional standalone daemon so sshd_config is authoritative (update
+    # scripts also read the port from there via grep).
+    if systemctl list-unit-files ssh.socket &>/dev/null && \
+       systemctl is-active --quiet ssh.socket 2>/dev/null; then
+        log_info "Reverting SSH from socket-activation to ssh.service (so Port takes effect)"
+        systemctl disable --now ssh.socket >/dev/null 2>&1 || true
+        # Neutralize the socket's port override in case anything re-triggers it
+        mkdir -p /etc/systemd/system/ssh.socket.d
+        cat > /etc/systemd/system/ssh.socket.d/override.conf <<SOCKETEOF
+[Socket]
+ListenStream=
+ListenStream=${ssh_port}
+SOCKETEOF
+        systemctl daemon-reload
+    fi
+
     # Service is named "ssh" on Debian/Ubuntu, "sshd" on RHEL/Fedora
     local sshd_service="sshd"
     if systemctl list-unit-files ssh.service &>/dev/null; then
         sshd_service="ssh"
     fi
+    systemctl enable "$sshd_service" >/dev/null 2>&1 || true
     systemctl restart "$sshd_service"
-    log_ok "SSH hardened: password auth disabled, key-only access, port $ssh_port"
+
+    # Verify the daemon actually bound the intended port before we let UFW close
+    # the old one. A mismatch here is the difference between "hardened" and
+    # "locked out", so fail loudly rather than press on.
+    local bound=false _try
+    for _try in 1 2 3 4 5; do
+        if ss -tlnH "sport = :${ssh_port}" 2>/dev/null | grep -q ":${ssh_port}"; then
+            bound=true
+            break
+        fi
+        sleep 1
+    done
+    if [[ "$bound" != true ]]; then
+        log_error "sshd is NOT listening on port ${ssh_port} after restart!"
+        log_error "Aborting before UFW closes the old port — this would be a lockout."
+        log_error "Check: systemctl status ${sshd_service}; ss -tlnp | grep sshd"
+        exit 1
+    fi
+    log_ok "SSH hardened: password auth disabled, key-only access, port $ssh_port (listener confirmed)"
 }
 
 setup_ufw() {
