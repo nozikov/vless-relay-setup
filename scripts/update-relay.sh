@@ -9,10 +9,15 @@ source "$SCRIPT_DIR/lib/3xui.sh"
 source "$SCRIPT_DIR/lib/xui-api.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
+source "$SCRIPT_DIR/lib/wireguard.sh"
 
 main() {
     local upgrade=false skip_ssh=false
     local arg_hy_port="" arg_hy_port_end="" arg_hy_obfs=""
+    # Backhaul mode switches. Explicit params required because the OTHER mode's
+    # values aren't recoverable from the active template once overwritten.
+    local arg_wg_params=() arg_vless_params=() arg_wg_conf=""
+    local arg_wg_lan_allow="" wg_lan_allow_set=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --upgrade) upgrade=true ;;
@@ -20,9 +25,53 @@ main() {
             --hysteria-port) arg_hy_port="$2"; shift ;;
             --hysteria-port-end) arg_hy_port_end="$2"; shift ;;
             --hysteria-obfs) arg_hy_obfs="$2"; shift ;;
+            --wg-conf) arg_wg_conf="$2"; shift ;;
+            --wg-lan-allow) arg_wg_lan_allow="${2-}"; wg_lan_allow_set=true; shift ;;
+            --wg-backhaul)
+                # <private_key> <address> <peer_pubkey> <endpoint> [allowed_ips] [keepalive] [mtu]
+                shift
+                while [[ $# -gt 0 && "$1" != --* ]]; do
+                    arg_wg_params+=("$1")
+                    shift
+                done
+                continue
+                ;;
+            --vless-backhaul)
+                # <exit_ip> <exit_uuid> <exit_pubkey> <exit_short_id> <exit_sni>
+                shift
+                while [[ $# -gt 0 && "$1" != --* ]]; do
+                    arg_vless_params+=("$1")
+                    shift
+                done
+                continue
+                ;;
         esac
         shift
     done
+
+    if [[ -n "$arg_wg_conf" && ${#arg_wg_params[@]} -gt 0 ]]; then
+        log_error "--wg-conf and --wg-backhaul are mutually exclusive (--wg-conf is a shorthand for --wg-backhaul)"
+        exit 1
+    fi
+    if [[ ${#arg_vless_params[@]} -gt 0 ]] && [[ -n "$arg_wg_conf" || ${#arg_wg_params[@]} -gt 0 ]]; then
+        log_error "--vless-backhaul and --wg-backhaul/--wg-conf are mutually exclusive"
+        exit 1
+    fi
+    if [[ ${#arg_wg_params[@]} -gt 0 ]] && (( ${#arg_wg_params[@]} < 4 || ${#arg_wg_params[@]} > 7 )); then
+        log_error "--wg-backhaul requires 4-7 values: <private_key> <address> <peer_pubkey> <endpoint> [allowed_ips] [keepalive] [mtu]"
+        exit 1
+    fi
+    if [[ ${#arg_vless_params[@]} -gt 0 ]] && (( ${#arg_vless_params[@]} != 5 )); then
+        log_error "--vless-backhaul requires 5 values: <exit_ip> <exit_uuid> <exit_pubkey> <exit_short_id> <exit_sni>"
+        exit 1
+    fi
+
+    # --wg-conf: parse the UniFi/wg-quick file into the same param set
+    if [[ -n "$arg_wg_conf" ]]; then
+        parse_wg_conf "$arg_wg_conf" || exit 1
+        arg_wg_params=("$WG_PRIVATE_KEY" "$WG_ADDRESS" "$WG_PEER_PUBKEY" \
+            "$WG_ENDPOINT" "$WG_ALLOWED_IPS" "$WG_KEEPALIVE" "$WG_MTU")
+    fi
 
     echo "==========================================="
     echo "  VLESS Reality VPN — RELAY Server Update  v${PROJECT_VERSION}"
@@ -66,24 +115,119 @@ main() {
         exit 1
     fi
 
-    local exit_ip exit_port exit_uuid exit_pubkey exit_short_id exit_sni api_port
-    exit_ip=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].address')
-    exit_port=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].port')
-    exit_uuid=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].users[0].id')
-    exit_pubkey=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.publicKey')
-    exit_short_id=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.shortId')
-    exit_sni=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.serverName')
+    local api_port
     api_port=$(echo "$template" | jq -r '.inbounds[] | select(.tag=="api") | .port')
 
-    if [[ -z "$exit_ip" || "$exit_ip" == "null" ]]; then
-        log_error "Failed to extract exit server details from template"
-        exit 1
+    # Auto-detect current backhaul mode: wg-out outbound in the template means
+    # WireGuard-to-external-peer mode (no exit VPS, no proxy-exit outbound).
+    local detected_mode="vless"
+    if echo "$template" | jq -e '.outbounds[] | select(.tag=="wg-out")' > /dev/null 2>&1; then
+        detected_mode="wireguard"
     fi
 
-    log_ok "Current config read successfully"
-    log_info "  Exit:     $exit_ip:$exit_port"
-    log_info "  SNI:      $exit_sni"
-    log_info "  API port: $api_port"
+    # Target mode: CLI mode switches override auto-detection; a plain re-run
+    # regenerates the template in whatever mode is already active.
+    local backhaul_mode="$detected_mode"
+    if [[ ${#arg_vless_params[@]} -gt 0 ]]; then
+        backhaul_mode="vless"
+    elif [[ ${#arg_wg_params[@]} -gt 0 ]]; then
+        backhaul_mode="wireguard"
+    fi
+    if [[ "$backhaul_mode" != "$detected_mode" ]]; then
+        log_warn "Backhaul mode switch: $detected_mode → $backhaul_mode"
+        log_warn "  The $detected_mode-mode parameters will be overwritten and are NOT retained."
+    fi
+
+    local exit_ip="" exit_port=443 exit_uuid="" exit_pubkey="" exit_short_id="" exit_sni=""
+    local wg_private_key="" wg_address="" wg_peer_pubkey="" wg_endpoint=""
+    local wg_allowed_ips="0.0.0.0/0" wg_keepalive="25" wg_mtu="1380" wg_lan_allow=""
+
+    if [[ "$backhaul_mode" == "vless" ]]; then
+        if [[ ${#arg_vless_params[@]} -gt 0 ]]; then
+            exit_ip="${arg_vless_params[0]}"
+            exit_uuid="${arg_vless_params[1]}"
+            exit_pubkey="${arg_vless_params[2]}"
+            exit_short_id="${arg_vless_params[3]}"
+            exit_sni="${arg_vless_params[4]}"
+            validate_ip "$exit_ip" || { log_error "Invalid exit IP: $exit_ip"; exit 1; }
+            validate_uuid "$exit_uuid" || { log_error "Invalid exit UUID: $exit_uuid"; exit 1; }
+        else
+            exit_ip=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].address')
+            exit_port=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].port')
+            exit_uuid=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .settings.vnext[0].users[0].id')
+            exit_pubkey=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.publicKey')
+            exit_short_id=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.shortId')
+            exit_sni=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.realitySettings.serverName')
+
+            if [[ -z "$exit_ip" || "$exit_ip" == "null" ]]; then
+                log_error "Failed to extract exit server details from template"
+                if [[ "$detected_mode" == "wireguard" ]]; then
+                    log_error "Relay is in WireGuard mode — to switch back to a VPS exit, re-supply its params:"
+                    log_error "  --vless-backhaul <exit_ip> <exit_uuid> <exit_pubkey> <exit_short_id> <exit_sni>"
+                fi
+                exit 1
+            fi
+        fi
+
+        log_ok "Current config read successfully (VLESS backhaul)"
+        log_info "  Exit:     $exit_ip:$exit_port"
+        log_info "  SNI:      $exit_sni"
+        log_info "  API port: $api_port"
+    else
+        if [[ ${#arg_wg_params[@]} -gt 0 ]]; then
+            wg_private_key="${arg_wg_params[0]}"
+            wg_address="${arg_wg_params[1]}"
+            wg_peer_pubkey="${arg_wg_params[2]}"
+            wg_endpoint="${arg_wg_params[3]}"
+            wg_allowed_ips="${arg_wg_params[4]:-0.0.0.0/0}"
+            wg_keepalive="${arg_wg_params[5]:-25}"
+            wg_mtu="${arg_wg_params[6]:-1380}"
+        else
+            # Recover current WG peer values from the live template
+            wg_private_key=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.secretKey // empty')
+            wg_address=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.address | join(",")')
+            wg_peer_pubkey=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].publicKey // empty')
+            wg_endpoint=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].endpoint // empty')
+            wg_allowed_ips=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].allowedIPs | join(",")')
+            wg_keepalive=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].keepAlive // 25')
+            wg_mtu=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.mtu // 1380')
+
+            if [[ -z "$wg_private_key" || -z "$wg_peer_pubkey" || -z "$wg_endpoint" ]]; then
+                log_error "Failed to extract WireGuard peer details from template"
+                exit 1
+            fi
+        fi
+
+        # LAN-exception list IS recoverable from the live template (the ip-array
+        # rule pointing at wg-out) — a plain re-run never silently drops it.
+        wg_lan_allow=$(echo "$template" | jq -r \
+            '[.routing.rules[] | select(.outboundTag=="wg-out") | .ip // [] | .[]] | join(" ")')
+
+        validate_wg_peer_params "$wg_private_key" "$wg_address" "$wg_peer_pubkey" \
+            "$wg_endpoint" "$wg_keepalive" "$wg_mtu" || exit 1
+
+        log_ok "Current config read successfully (WireGuard backhaul)"
+        log_info "  Peer:     $wg_endpoint"
+        log_info "  Address:  $wg_address  MTU: $wg_mtu  Keepalive: $wg_keepalive"
+        log_info "  API port: $api_port"
+    fi
+
+    # --wg-lan-allow overrides the recovered list ('' or 'none' clears it)
+    if [[ "$wg_lan_allow_set" == true ]]; then
+        if [[ "$backhaul_mode" != "wireguard" ]]; then
+            log_error "--wg-lan-allow only applies to WireGuard backhaul mode"
+            exit 1
+        fi
+        if [[ -z "$arg_wg_lan_allow" || "$arg_wg_lan_allow" == "none" ]]; then
+            wg_lan_allow=""
+            log_info "LAN-exception list cleared (all private destinations blocked)"
+        else
+            wg_lan_allow=$(validate_wg_lan_allow "$arg_wg_lan_allow") || exit 1
+        fi
+    fi
+    if [[ "$backhaul_mode" == "wireguard" && -n "$wg_lan_allow" ]]; then
+        log_info "  LAN-exception allow-list: $wg_lan_allow"
+    fi
 
     # Read panel/subscription ports from DB
     local panel_port sub_port sub_enable
@@ -174,6 +318,20 @@ main() {
 
     # --- Step 5: Update xray template ---
     log_info "=== Updating XRAY Template ==="
+
+    # WG pre-flight: the (new or recovered) peer values must handshake and
+    # egress via a throwaway userspace tunnel BEFORE anything is written —
+    # cheaper than the backup-and-rollback path, since a bad config is simply
+    # never applied. Runs against the live relay with zero impact (no config
+    # write, no x-ui restart, no interface).
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        log_info "=== WireGuard Backhaul Pre-flight ==="
+        if ! wg_dry_run "$wg_private_key" "$wg_address" "$wg_peer_pubkey" \
+            "$wg_endpoint" "$wg_allowed_ips" "$wg_keepalive" "$wg_mtu"; then
+            log_error "WireGuard pre-flight failed — aborting, current template left untouched."
+            exit 1
+        fi
+    fi
 
     # 3X-UI overwrites DB on shutdown with in-memory state.
     # Must stop before writing, then start to load fresh config.
@@ -270,17 +428,24 @@ main() {
     # v3.x — the former manual backfill loop (issue #38, ensure_client_traffics_row) is
     # obsolete and its helper was removed.
 
-    if echo "$template" | jq -e '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings' > /dev/null 2>&1; then
-        log_info "Migrating proxy-exit outbound XHTTP → RAW + xtls-rprx-vision (issue #33)"
-        log_warn "  This relay will speak Vision to ${exit_ip}:${exit_port}."
-        log_warn "  Make sure 'update-exit' has ALREADY been run on the exit server,"
-        log_warn "  otherwise relay-routed clients will fail until exit is migrated."
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        log_info "Regenerating template with WireGuard backhaul (peer: ${wg_endpoint})"
+        configure_3xui_relay_template wireguard "$wg_private_key" "$wg_address" \
+            "$wg_peer_pubkey" "$wg_endpoint" "$wg_allowed_ips" "$wg_keepalive" \
+            "$wg_mtu" "$wg_lan_allow" "$api_port"
     else
-        log_info "proxy-exit outbound already on RAW + Vision, regenerating template"
-    fi
+        if echo "$template" | jq -e '.outbounds[] | select(.tag=="proxy-exit") | .streamSettings.xhttpSettings' > /dev/null 2>&1; then
+            log_info "Migrating proxy-exit outbound XHTTP → RAW + xtls-rprx-vision (issue #33)"
+            log_warn "  This relay will speak Vision to ${exit_ip}:${exit_port}."
+            log_warn "  Make sure 'update-exit' has ALREADY been run on the exit server,"
+            log_warn "  otherwise relay-routed clients will fail until exit is migrated."
+        else
+            log_info "proxy-exit outbound already on RAW + Vision, regenerating template"
+        fi
 
-    configure_3xui_relay_template "$exit_ip" "$exit_port" "$exit_uuid" \
-        "$exit_pubkey" "$exit_short_id" "$exit_sni" "$api_port"
+        configure_3xui_relay_template vless "$exit_ip" "$exit_port" "$exit_uuid" \
+            "$exit_pubkey" "$exit_short_id" "$exit_sni" "$api_port"
+    fi
 
     x-ui start
 
@@ -319,8 +484,14 @@ main() {
     fi
 
     # --- Step 5b: Update extra links in sub-proxy if active ---
+    # Extra subscription channels (Direct Exit / CDN / Hysteria) all assume a
+    # VPS exit reachable inbound on 443 — none apply in WireGuard mode.
     local sub_proxy_service="/etc/systemd/system/sub-proxy.service"
-    if [[ -f "$sub_proxy_service" ]]; then
+    if [[ -f "$sub_proxy_service" && "$backhaul_mode" == "wireguard" ]]; then
+        log_warn "sub-proxy service present but relay is in WireGuard backhaul mode —"
+        log_warn "  Direct Exit / CDN / Hysteria links are stale (they point at the old VPS exit)."
+        log_warn "  Skipping link regeneration; remove sub-proxy manually if unwanted."
+    elif [[ -f "$sub_proxy_service" ]]; then
         log_info "Updating links in sub-proxy..."
 
         # Update sub-proxy script and config templates from codebase
@@ -505,7 +676,21 @@ SVCEOF
     log_ok "RELAY server update complete!"
     echo "==========================================="
     echo ""
-    echo "  Template updated from latest codebase"
+    echo "  Template updated from latest codebase (${backhaul_mode} backhaul)"
+    if [[ "$backhaul_mode" != "$detected_mode" ]]; then
+        echo "  Backhaul mode switched: ${detected_mode} → ${backhaul_mode}"
+    fi
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        echo "  WireGuard peer: ${wg_endpoint}"
+        [[ -n "${WG_DRY_RUN_EGRESS_IP:-}" ]] && echo "  Tunnel egress IP: ${WG_DRY_RUN_EGRESS_IP}"
+        if [[ -n "$wg_lan_allow" ]]; then
+            echo "  LAN hosts allowed through the tunnel: ${wg_lan_allow}"
+            echo "  Scope the router-side peer to WAN egress plus exactly these hosts —"
+            echo "  this repo cannot enforce the router side."
+        else
+            echo "  Private-IP destinations blocked (no LAN exceptions)"
+        fi
+    fi
     if [[ "$current_network" != "xhttp" ]]; then
         echo "  Relay inbound migrated from TCP to XHTTP"
     fi
@@ -521,10 +706,12 @@ SVCEOF
         echo "  Hysteria 2 link added to subscriptions"
     fi
     echo ""
-    echo "  Tell users to refresh the subscription URL in their VPN client —"
-    echo "  cached Direct Exit / CDN-asymmetric links from before v1.10.0 will"
-    echo "  not work after the Vision migration (see issue #33)."
-    echo ""
+    if [[ "$backhaul_mode" == "vless" ]]; then
+        echo "  Tell users to refresh the subscription URL in their VPN client —"
+        echo "  cached Direct Exit / CDN-asymmetric links from before v1.10.0 will"
+        echo "  not work after the Vision migration (see issue #33)."
+        echo ""
+    fi
 }
 
 LOG_FILE="/var/log/vpn-setup-$(basename "$0" .sh)-$(date +%Y%m%d-%H%M%S).log"
