@@ -3,6 +3,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/xui-api.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/wireguard.sh"
 
 XUI_BIN="${XUI_MAIN_FOLDER:-/usr/local/x-ui}/x-ui"
 XUI_DB="/etc/x-ui/x-ui.db"
@@ -124,61 +125,72 @@ configure_3xui() {
     log_info "  User: $admin_user"
 }
 
+# Backhaul mode is the first arg:
+#   configure_3xui_relay_template vless <exit_ip> <exit_port> <exit_uuid> \
+#       <exit_pubkey> <exit_short_id> <exit_sni> [api_port]
+#   configure_3xui_relay_template wireguard <private_key> <address> <peer_pubkey> \
+#       <endpoint> [allowed_ips] [keepalive] [mtu] [lan_allow] [api_port]
+# wireguard mode replaces proxy-exit+fragment with a single userspace wg-out
+# outbound (external peer, e.g. home router — no exit XRAY on the far end).
+# lan_allow is a space-separated, pre-normalized CIDR list (validate_wg_lan_allow)
+# punched through the relay-side geoip:private block one /32 at a time.
 configure_3xui_relay_template() {
-    local exit_ip="$1"
-    local exit_port="$2"
-    local exit_uuid="$3"
-    local exit_pubkey="$4"
-    local exit_short_id="$5"
-    local exit_sni="$6"
+    local backhaul_mode="$1"
+    shift
 
-    local api_port="${7:-$(shuf -i 10000-60000 -n1)}"
+    local api_port outbounds_json rules_json
 
-    log_info "Writing xray template config to 3X-UI database..."
+    if [[ "$backhaul_mode" == "wireguard" ]]; then
+        local wg_private_key="$1"
+        local wg_address="$2"
+        local wg_peer_pubkey="$3"
+        local wg_endpoint="$4"
+        local wg_allowed_ips="${5:-0.0.0.0/0}"
+        local wg_keepalive="${6:-25}"
+        local wg_mtu="${7:-1380}"
+        local wg_lan_allow="${8:-}"
+        api_port="${9:-$(shuf -i 10000-60000 -n1)}"
 
-    local extra_json
-    extra_json=$(xhttp_extra_json)
+        local wg_out lan_ips_json='[]'
+        wg_out=$(wg_outbound_json "$wg_private_key" "$wg_address" "$wg_peer_pubkey" \
+            "$wg_endpoint" "$wg_allowed_ips" "$wg_keepalive" "$wg_mtu")
+        if [[ -n "$wg_lan_allow" ]]; then
+            # shellcheck disable=SC2086 — word-splitting the normalized list is intended
+            lan_ips_json=$(printf '%s\n' $wg_lan_allow | jq -R . | jq -s -c .)
+        fi
 
-    local template
-    template=$(jq -n -c \
-        --arg exit_ip "$exit_ip" \
-        --argjson exit_port "$exit_port" \
-        --arg exit_uuid "$exit_uuid" \
-        --arg exit_pubkey "$exit_pubkey" \
-        --arg exit_short_id "$exit_short_id" \
-        --arg exit_sni "$exit_sni" \
-        --argjson api_port "$api_port" \
-        --argjson extra "$extra_json" \
-        '{
-            log: {
-                loglevel: "warning",
-                access: "/var/log/xray/access.log",
-                error: "/var/log/xray/error.log"
-            },
-            api: {
-                services: ["HandlerService", "LoggerService", "StatsService"],
-                tag: "api"
-            },
-            inbounds: [
-                {
-                    tag: "api",
-                    listen: "127.0.0.1",
-                    port: $api_port,
-                    protocol: "dokodemo-door",
-                    settings: { address: "127.0.0.1" }
-                }
-            ],
-            stats: {},
-            policy: {
-                levels: {"0": {statsUserUplink: true, statsUserDownlink: true}},
-                system: {
-                    statsInboundUplink: true,
-                    statsInboundDownlink: true,
-                    statsOutboundUplink: true,
-                    statsOutboundDownlink: true
-                }
-            },
-            outbounds: [
+        outbounds_json=$(jq -n -c --argjson wg "$wg_out" \
+            '[$wg, {tag: "direct", protocol: "freedom"}, {tag: "block", protocol: "blackhole"}]')
+
+        # Rule order is load-bearing (first-match wins): the LAN-exception rule
+        # must precede the geoip:private block, and the block must precede the
+        # inbound-443 catch-all. Empty lan_allow → no exception rule at all.
+        rules_json=$(jq -n -c --argjson lan_ips "$lan_ips_json" '
+            [{type: "field", inboundTag: ["api"], outboundTag: "api"}]
+            + (if ($lan_ips | length) > 0
+               then [{type: "field", ip: $lan_ips, outboundTag: "wg-out"}]
+               else [] end)
+            + [
+                {type: "field", ip: ["geoip:private"], outboundTag: "block"},
+                {type: "field", inboundTag: ["inbound-443"], outboundTag: "wg-out"}
+            ]')
+    else
+        local exit_ip="$1"
+        local exit_port="$2"
+        local exit_uuid="$3"
+        local exit_pubkey="$4"
+        local exit_short_id="$5"
+        local exit_sni="$6"
+        api_port="${7:-$(shuf -i 10000-60000 -n1)}"
+
+        outbounds_json=$(jq -n -c \
+            --arg exit_ip "$exit_ip" \
+            --argjson exit_port "$exit_port" \
+            --arg exit_uuid "$exit_uuid" \
+            --arg exit_pubkey "$exit_pubkey" \
+            --arg exit_short_id "$exit_short_id" \
+            --arg exit_sni "$exit_sni" \
+            '[
                 {
                     tag: "proxy-exit",
                     protocol: "vless",
@@ -228,20 +240,53 @@ configure_3xui_relay_template() {
                         }
                     }
                 }
+            ]')
+
+        rules_json=$(jq -n -c '[
+            {type: "field", inboundTag: ["api"], outboundTag: "api"},
+            {type: "field", inboundTag: ["inbound-443"], outboundTag: "proxy-exit"}
+        ]')
+    fi
+
+    log_info "Writing xray template config to 3X-UI database (${backhaul_mode} backhaul)..."
+
+    local template
+    template=$(jq -n -c \
+        --argjson api_port "$api_port" \
+        --argjson outbounds "$outbounds_json" \
+        --argjson rules "$rules_json" \
+        '{
+            log: {
+                loglevel: "warning",
+                access: "/var/log/xray/access.log",
+                error: "/var/log/xray/error.log"
+            },
+            api: {
+                services: ["HandlerService", "LoggerService", "StatsService"],
+                tag: "api"
+            },
+            inbounds: [
+                {
+                    tag: "api",
+                    listen: "127.0.0.1",
+                    port: $api_port,
+                    protocol: "dokodemo-door",
+                    settings: { address: "127.0.0.1" }
+                }
             ],
+            stats: {},
+            policy: {
+                levels: {"0": {statsUserUplink: true, statsUserDownlink: true}},
+                system: {
+                    statsInboundUplink: true,
+                    statsInboundDownlink: true,
+                    statsOutboundUplink: true,
+                    statsOutboundDownlink: true
+                }
+            },
+            outbounds: $outbounds,
             routing: {
-                rules: [
-                    {
-                        type: "field",
-                        inboundTag: ["api"],
-                        outboundTag: "api"
-                    },
-                    {
-                        type: "field",
-                        inboundTag: ["inbound-443"],
-                        outboundTag: "proxy-exit"
-                    }
-                ]
+                rules: $rules
             }
         }')
 
