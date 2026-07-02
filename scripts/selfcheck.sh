@@ -11,6 +11,7 @@ source "$SCRIPT_DIR/lib/common.sh"
 source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/selfcheck.sh"
 source "$SCRIPT_DIR/lib/xui-api.sh"
+source "$SCRIPT_DIR/lib/wireguard.sh"
 
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 XUI_DB="/etc/x-ui/x-ui.db"
@@ -135,6 +136,62 @@ run_selfcheck_relay() {
     else
         log_warn "3X-UI panel API not reachable / token invalid"
         _warns=$((_warns + 1))
+    fi
+
+    # WireGuard backhaul (WG-to-external-peer mode) — template sanity + live
+    # dry-run. Nothing to check on the far end (externally managed router).
+    local template=""
+    template=$(sqlite3 "$XUI_DB" \
+        "SELECT value FROM settings WHERE key='xrayTemplateConfig';" 2>/dev/null) || true
+    if [[ -n "$template" ]] && \
+       echo "$template" | jq -e '.outbounds[] | select(.tag=="wg-out")' >/dev/null 2>&1; then
+        log_info "=== WireGuard backhaul ==="
+
+        local wg_sk wg_addr wg_pk wg_ep wg_aips wg_ka wg_mtu wg_lan
+        wg_sk=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.secretKey // empty')
+        wg_addr=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.address | join(",")')
+        wg_pk=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].publicKey // empty')
+        wg_ep=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].endpoint // empty')
+        wg_aips=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].allowedIPs | join(",")')
+        wg_ka=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.peers[0].keepAlive // 25')
+        wg_mtu=$(echo "$template" | jq -r '.outbounds[] | select(.tag=="wg-out") | .settings.mtu // 1380')
+
+        if [[ -z "$wg_sk" || -z "$wg_pk" || -z "$wg_ep" ]]; then
+            log_error "wg-out outbound incomplete (missing secretKey/publicKey/endpoint)"
+            _fails=$((_fails + 1))
+        else
+            log_ok "wg-out outbound present (peer: $wg_ep)"
+
+            # LAN-exception allow-list: INFO, not PASS/FAIL — a green check must
+            # not hide which private hosts are intentionally punched through.
+            wg_lan=$(echo "$template" | jq -r \
+                '[.routing.rules[] | select(.outboundTag=="wg-out") | .ip // [] | .[]] | join(", ")')
+            if [[ -n "$wg_lan" ]]; then
+                log_info "LAN-exception allow-list (relay side): $wg_lan"
+                log_info "  Not probed here — actual reachability depends on router-side peer scoping"
+            fi
+
+            # Live check: fresh ephemeral tunnel from the configured params.
+            # Proves the params + router are good NOW; it is NOT introspection
+            # of the running wg-out outbound (no wg0 interface / wg show exists).
+            rc=0; wg_dry_run "$wg_sk" "$wg_addr" "$wg_pk" "$wg_ep" "$wg_aips" "$wg_ka" "$wg_mtu" || rc=$?
+            if [[ "$rc" -eq 0 ]]; then
+                log_info "  (verifies params via a fresh tunnel — does NOT prove the router-side peer is LAN-scoped)"
+            else
+                log_error "WireGuard backhaul dry-run failed (no handshake/egress with configured params)"
+                _fails=$((_fails + 1))
+            fi
+
+            # Supplementary: the live outbound's only observable signal is xray's own logs
+            if [[ -f /var/log/xray/error.log ]]; then
+                local wg_errs
+                wg_errs=$(tail -n 200 /var/log/xray/error.log 2>/dev/null | grep -ci 'wireguard') || true
+                if [[ "${wg_errs:-0}" -gt 0 ]]; then
+                    log_warn "xray error.log mentions wireguard ${wg_errs} time(s) in last 200 lines — live outbound may be degraded"
+                    _warns=$((_warns + 1))
+                fi
+            fi
+        fi
     fi
 
     log_info "=== Block 3 — outside probes ==="
