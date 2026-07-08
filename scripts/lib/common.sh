@@ -223,8 +223,19 @@ LIMITS
     log_ok "systemd nofile limit set to 65535 (applies on next service start)"
 }
 
+# On a freshly booted VM, unattended-upgrades / apt-daily hold the dpkg lock for
+# the first few minutes, so a naive apt-get fails with exit 100 and aborts setup
+# under `set -e`. Install a global drop-in so EVERY apt-get in this run — ours and
+# the external 3X-UI/Caddy/XRAY installers' — waits for the lock instead of dying.
+ensure_apt_lock_wait() {
+    local conf=/etc/apt/apt.conf.d/99-vpn-lock-timeout
+    [[ -f "$conf" ]] && return 0
+    echo 'DPkg::Lock::Timeout "300";' > "$conf" 2>/dev/null || true
+}
+
 install_dependencies() {
     log_info "Installing dependencies..."
+    ensure_apt_lock_wait
     apt-get update -qq
     apt-get install -y -qq curl wget unzip jq openssl cron socat git sqlite3 > /dev/null 2>&1
     log_ok "Dependencies installed"
@@ -232,6 +243,7 @@ install_dependencies() {
 
 update_system() {
     log_info "Updating system..."
+    ensure_apt_lock_wait
     apt-get update -qq && apt-get upgrade -y -qq > /dev/null 2>&1
     log_ok "System updated"
 }

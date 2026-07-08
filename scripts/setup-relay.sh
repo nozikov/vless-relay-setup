@@ -379,7 +379,7 @@ main() {
 
     # Create relay inbound and xray template (all DB writes)
     local default_sub_id
-    default_sub_id=$(head -c 8 /dev/urandom | xxd -p)
+    default_sub_id=$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
     local relay_xhttp_path
     relay_xhttp_path=$(generate_random_path)
 
