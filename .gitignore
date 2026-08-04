@@ -3,3 +3,8 @@
 docs/superpowers/
 .worktrees/
 .tmp-*
+
+# Local connection details / secrets — never commit
+relay-connection-details.txt
+relay-*-connection-details.txt
+*.secrets.txt
