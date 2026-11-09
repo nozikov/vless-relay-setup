@@ -173,6 +173,7 @@ prune_backups() {
 # issue_domain_cert) keeps renewing. --purge-certs in uninstall removes everything.
 cleanup_acme_panel_leftovers() {
     local acme_home="/root/.acme.sh" d name removed=0 left=0
+    rm -rf /root/cert/ip
     [[ -f "$acme_home/acme.sh" ]] || return 0
     for d in "$acme_home"/*/; do
         [[ -d "$d" ]] || continue
@@ -185,7 +186,6 @@ cleanup_acme_panel_leftovers() {
             left=$((left + 1))
         fi
     done
-    rm -rf /root/cert/ip
     (( removed > 0 )) && log_ok "Removed ${removed} acme.sh IP cert(s) of the 3X-UI panel"
     local cron=""
     cron=$(crontab -l 2>/dev/null) || cron=""
