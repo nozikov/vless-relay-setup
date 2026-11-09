@@ -136,7 +136,7 @@ Split routing requires no additional server configuration — it is a client-sid
 - **Split Routing** — region-based traffic routing: local services go direct, everything else through VPN. Ready-made Shadowrocket configs (`?conf=ru`)
 - **SSH hardening + fail2ban + UFW** — automated server security configuration
 - **Server performance tuning** — BBR congestion control + raised file descriptor limits
-- **Backup / Rollback** — automatic backups on every update with rollback on failure
+- **Backup / Rollback** — automatic backups on every update (the last 5 are kept) with rollback on failure
 
 ## Prerequisites
 
