@@ -227,12 +227,14 @@ SSHD
         _ssh_restore_config_files
         rm -rf "$backup_dir"
         trap - INT HUP TERM
-        log_error "Effective sshd config (sshd -T) does not match: passwordauthentication=${eff_password:-?}, kbdinteractiveauthentication=${eff_kbd:-?}, permitrootlogin=${eff_root:-?}, port(s)=${eff_ports//$'\n'/,} (expected no / no / prohibit-password / ${ssh_port})"
+        log_error "Effective sshd config (sshd -T) does not match: passwordauthentication=${eff_password:-?}, kbdinteractiveauthentication=${eff_kbd:-?}, permitrootlogin=${eff_root:-?}, port(s)=${eff_ports//$'\n'/,} (expected no / no / without-password|no / ${ssh_port})"
         log_error "Overridden by another sshd config file${overriders:+: ${overriders}}— restored, sshd NOT restarted"
         if [[ "${SSH_HARDENING_SOFT:-false}" == true ]]; then
             # update-*: XRAY is already reconfigured at this point; aborting would
             # skip the remaining steps for nothing — sshd was not touched.
             log_warn "Continuing WITHOUT SSH hardening. Fix the file above, then re-run the update."
+            # shellcheck disable=SC2034  # read by update-exit/update-relay summaries
+            SSH_HARDENING_SKIPPED=true
             return 0
         fi
         exit 1
