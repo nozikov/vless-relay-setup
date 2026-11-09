@@ -235,6 +235,7 @@ purge_3xui_panel() {
     # UFW: DB webPort + every rule labelled "3X-UI Panel" (the port may have been
     # changed in the panel since setup). Never 22/80/443/SSH.
     close_xui_ufw_ports "$ssh_port" "$panel_port"
+    cleanup_acme_panel_leftovers
 
     log_ok "3X-UI panel removed (standalone xray untouched)"
 
