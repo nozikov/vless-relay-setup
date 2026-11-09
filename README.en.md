@@ -344,6 +344,8 @@ vpn help                   # this help
 
 Changes show up in the web panel after refresh. CDN inbound is synced automatically. Auto-rollback if xray doesn't come back up after changes.
 
+A subscription URL exists only if the relay was set up with a domain. Without one, `vpn add` still creates the client but prints no URL, and `vpn link` exits with an error and a hint on how to enable subscriptions. In that case take the client's link or QR from the web panel.
+
 ### Sharing access
 
 Each client gets a universal link (`vpn link <name>`). Open it in a phone browser → you see a page with QR code, three one-tap import buttons (Happ, v2rayTun, Shadowrocket) and brief instructions. The same URL works as a standard subscription for VPN clients.
