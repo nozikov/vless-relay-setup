@@ -122,6 +122,32 @@ validate_not_empty() {
     fi
 }
 
+# Secrets never go on a child's argv — /proc/*/cmdline is world-readable (ps).
+# bash builtins (printf) don't exec, so `printf '%s' "$secret" | cmd`, jq
+# `--rawfile k <(printf '%s' "$v")` and `sqlite3 "$db" <<< "$sql"` are safe.
+
+# URL-encode a string (urllib.parse.quote, safe='/'), input via stdin.
+url_quote() {
+    printf '%s' "$1" | python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.stdin.read()))'
+}
+
+# Reality public key from the base64url private key, without `xray x25519 -i KEY`
+# (argv). Wraps the raw 32-byte X25519 key in a PKCS#8 DER header for openssl.
+# Falls back to xray if openssl can't do it. Prints nothing on failure.
+reality_public_key_from_private() {
+    local b64="${1//-/+}" pub=""
+    b64="${b64//_//}"
+    while (( ${#b64} % 4 )); do b64+="="; done
+    pub=$({ printf '\x30\x2e\x02\x01\x00\x30\x05\x06\x03\x2b\x65\x6e\x04\x22\x04\x20'
+            printf '%s' "$b64" | openssl base64 -d -A; } 2>/dev/null \
+        | openssl pkey -inform DER -pubout -outform DER 2>/dev/null \
+        | tail -c 32 | openssl base64 -A | tr '+/' '-_' | tr -d '=') || pub=""
+    if [[ ${#pub} -ne 43 ]]; then
+        pub=$(xray x25519 -i "$1" 2>/dev/null | grep -iE "public|password" | awk '{print $NF}') || pub=""
+    fi
+    printf '%s' "$pub"
+}
+
 generate_random_port() {
     local excluded_ports=("$@")
     local port

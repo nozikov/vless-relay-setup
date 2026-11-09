@@ -66,7 +66,7 @@ main() {
     log_info "=== Reading current configuration ==="
 
     local template
-    template=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='xrayTemplateConfig';")
+    template=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='xrayTemplateConfig';")
 
     if [[ -z "$template" ]]; then
         log_error "No xray template config found in 3X-UI database"
@@ -95,18 +95,18 @@ main() {
 
     # Read panel/subscription ports from DB
     local panel_port sub_port sub_enable sub_port_raw
-    panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';") || true
-    sub_port_raw=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subPort';") || true
-    sub_enable=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subEnable';") || true
+    panel_port=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='webPort';") || true
+    sub_port_raw=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subPort';") || true
+    sub_enable=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subEnable';") || true
     sub_port=""
     if [[ "$sub_enable" == "true" ]]; then
-        sub_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subPort';") || true
+        sub_port=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subPort';") || true
     fi
 
     local is_selfsteal=false
     local current_dest
     current_dest=$(sqlite3 "$XUI_DB" \
-        "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" | \
+        <<< "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" | \
         jq -r '.realitySettings.dest') || true
     if [[ "$current_dest" == *"caddy.sock"* ]]; then
         is_selfsteal=true
@@ -116,7 +116,7 @@ main() {
     # SelfSteal: is the subscription served through Caddy (subscription domain set)?
     # Only then bind it to loopback and close its UFW port (issue #40).
     local sub_bind="" sub_close_port="" sub_domain_db
-    sub_domain_db=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subDomain';") || true
+    sub_domain_db=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subDomain';") || true
     if [[ "$is_selfsteal" == true && -n "$sub_domain_db" ]]; then
         sub_bind="with-sub"
         sub_close_port="$sub_port_raw"
@@ -125,7 +125,7 @@ main() {
     local is_cdn=false
     local cdn_settings
     cdn_settings=$(sqlite3 "$XUI_DB" \
-        "SELECT settings FROM inbounds WHERE tag='inbound-cdn';" 2>/dev/null) || true
+        <<< "SELECT settings FROM inbounds WHERE tag='inbound-cdn';" 2>/dev/null) || true
     if [[ -n "$cdn_settings" ]]; then
         is_cdn=true
         log_info "CDN mode detected"
@@ -134,7 +134,7 @@ main() {
     # Detect current relay inbound transport (TCP or XHTTP)
     local current_network
     current_network=$(sqlite3 "$XUI_DB" \
-        "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" | \
+        <<< "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" | \
         jq -r '.network') || true
     if [[ "$current_network" == "xhttp" ]]; then
         log_info "XHTTP inbound detected"
@@ -209,12 +209,12 @@ main() {
     # Patch inbound sniffing to add routeOnly (idempotent — jq sets the field)
     local current_sniffing patched_sniffing
     current_sniffing=$(sqlite3 "$XUI_DB" \
-        "SELECT sniffing FROM inbounds WHERE tag='inbound-443';") || true
+        <<< "SELECT sniffing FROM inbounds WHERE tag='inbound-443';") || true
     if [[ -n "$current_sniffing" ]]; then
         patched_sniffing=$(echo "$current_sniffing" | jq -c '.routeOnly = true')
         local s_sniffing="${patched_sniffing//\'/\'\'}"
         sqlite3 "$XUI_DB" \
-            "UPDATE inbounds SET sniffing='${s_sniffing}' WHERE tag='inbound-443';"
+            <<< "UPDATE inbounds SET sniffing='${s_sniffing}' WHERE tag='inbound-443';"
         log_ok "Inbound sniffing patched (routeOnly: true)"
     fi
 
@@ -230,11 +230,11 @@ main() {
 
         local current_stream patched_stream
         current_stream=$(sqlite3 "$XUI_DB" \
-            "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';")
+            <<< "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';")
         # Write xhttpSettings complete with extra in a single pass —
         # prevents fragility if the post-migration patch block is skipped/reordered.
         patched_stream=$(echo "$current_stream" | jq -c \
-            --arg relay_path "$relay_xhttp_path" \
+            --rawfile relay_path <(printf '%s' "$relay_xhttp_path") \
             --argjson extra "$extra_json" \
             '.network = "xhttp"
             | .xhttpSettings = {
@@ -245,20 +245,20 @@ main() {
             | del(.tcpSettings)')
         local s_stream="${patched_stream//\'/\'\'}"
         sqlite3 "$XUI_DB" \
-            "UPDATE inbounds SET stream_settings='${s_stream}' WHERE tag='inbound-443';"
+            <<< "UPDATE inbounds SET stream_settings='${s_stream}' WHERE tag='inbound-443';"
         # Clear flow from all clients — flow is incompatible with XHTTP
         # (Shadowrocket and other clients connect without flow on XHTTP)
         local current_settings patched_settings
         current_settings=$(sqlite3 "$XUI_DB" \
-            "SELECT settings FROM inbounds WHERE tag='inbound-443';")
+            <<< "SELECT settings FROM inbounds WHERE tag='inbound-443';")
         patched_settings=$(echo "$current_settings" | jq -c \
             '.clients = [.clients[] | .flow = ""]')
         local s_settings="${patched_settings//\'/\'\'}"
         sqlite3 "$XUI_DB" \
-            "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-443';"
+            <<< "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-443';"
         # v3: keep the normalized clients table in sync (flow column). Guarded no-op
         # if the table doesn't exist (relay not yet upgraded to v3 in this run).
-        sqlite3 "$XUI_DB" "UPDATE clients SET flow='' WHERE flow != '';" 2>/dev/null || true
+        sqlite3 "$XUI_DB" <<< "UPDATE clients SET flow='' WHERE flow != '';" 2>/dev/null || true
 
         log_ok "Relay inbound migrated from TCP to XHTTP"
     fi
@@ -271,7 +271,7 @@ main() {
     local current_inbound_stream updated_inbound_stream lf_json
     lf_json=$(reality_limit_fallback_json)
     current_inbound_stream=$(sqlite3 "$XUI_DB" \
-        "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';") || true
+        <<< "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';") || true
     if [[ -n "$current_inbound_stream" && \
           "$(echo "$current_inbound_stream" | jq -r '.network')" == "xhttp" ]]; then
         updated_inbound_stream=$(echo "$current_inbound_stream" | jq -c \
@@ -285,7 +285,7 @@ main() {
         fi
         local s_inbound_stream="${updated_inbound_stream//\'/\'\'}"
         sqlite3 "$XUI_DB" \
-            "UPDATE inbounds SET stream_settings='${s_inbound_stream}' WHERE tag='inbound-443';"
+            <<< "UPDATE inbounds SET stream_settings='${s_inbound_stream}' WHERE tag='inbound-443';"
         log_ok "XHTTP inbound patched (extra block + Reality limitFallback)"
     fi
 
@@ -410,10 +410,10 @@ main() {
                 local download_extra extra_encoded
                 download_extra=$(jq -n -c \
                     --arg padding "100-1000" \
-                    --arg addr "$exit_ip" \
-                    --arg sni "$exit_sni" \
-                    --arg pubkey "$exit_pubkey" \
-                    --arg sid "$exit_short_id" \
+                    --rawfile addr <(printf '%s' "$exit_ip") \
+                    --rawfile sni <(printf '%s' "$exit_sni") \
+                    --rawfile pubkey <(printf '%s' "$exit_pubkey") \
+                    --rawfile sid <(printf '%s' "$exit_short_id") \
                     '{
                         xPaddingBytes: $padding,
                         downloadSettings: {
@@ -427,7 +427,7 @@ main() {
                             }
                         }
                     }')
-                extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$download_extra")
+                extra_encoded=$(url_quote "$download_extra")
                 cdn_vless_link_asym="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up&extra=${extra_encoded}#CDN%20Asymmetric"
             fi
 
@@ -444,7 +444,7 @@ main() {
             # URL-encoded XHTTP extra — sub-proxy injects into each relay VLESS URL
             # since 3X-UI's built-in subscription generator does not emit extra=.
             local relay_extra_encoded
-            relay_extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$extra_json")
+            relay_extra_encoded=$(url_quote "$extra_json")
 
             # Escape % for systemd
             local link_escaped="${cdn_vless_link//%/%%}"

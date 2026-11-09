@@ -51,14 +51,14 @@ require_relay() {
 # return 1, подсказку печатает вызывающий (print_no_subscription_hint, stderr).
 get_subscription_prefix() {
     local sub_uri sub_domain sub_port sub_path
-    sub_uri=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subURI';" 2>/dev/null) || true
+    sub_uri=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subURI';" 2>/dev/null) || true
     if [[ -n "$sub_uri" ]]; then
         echo "$sub_uri"
         return 0
     fi
-    sub_domain=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subDomain';" 2>/dev/null) || true
-    sub_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subPort';" 2>/dev/null) || true
-    sub_path=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subPath';" 2>/dev/null) || true
+    sub_domain=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subDomain';" 2>/dev/null) || true
+    sub_port=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subPort';" 2>/dev/null) || true
+    sub_path=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='subPath';" 2>/dev/null) || true
     if [[ -n "$sub_domain" && -n "$sub_port" ]]; then
         echo "https://${sub_domain}:${sub_port}${sub_path:-/}"
         return 0
@@ -104,7 +104,7 @@ cmd_add() {
 
     # Uniqueness — read clients via API (normalized source of truth on v3).
     local existing
-    existing=$(xui_api_list_clients | jq -r --arg n "$name" 'first(.[]?|select(.email==$n).email) // empty') || true
+    existing=$(xui_api_list_clients | jq -r --rawfile n <(printf '%s' "$name") 'first(.[]?|select(.email==$n).email) // empty') || true
     if [[ -n "$existing" ]]; then
         log_error "Client '$name' already exists"
         exit 1
@@ -119,7 +119,7 @@ cmd_add() {
     log_info "Adding client '$name' (UUID: $uuid)"
 
     local client_json
-    client_json=$(jq -n -c --arg id "$uuid" --arg n "$name" --arg s "$sub_id" \
+    client_json=$(jq -n -c --rawfile id <(printf '%s' "$uuid") --rawfile n <(printf '%s' "$name") --rawfile s <(printf '%s' "$sub_id") \
         '{id:$id, email:$n, flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:0, reset:0, comment:""}')
     xui_api_add_client "$inbound_id" "$client_json" || { log_error "Failed to add client via API"; exit 2; }
 
@@ -147,7 +147,7 @@ cmd_add() {
 cmd_list() {
     local rows
     rows=$(sqlite3 -separator $'\t' "$XUI_DB" \
-        "SELECT email, uuid, enable FROM clients ORDER BY email;" 2>/dev/null) || {
+        <<< "SELECT email, uuid, enable FROM clients ORDER BY email;" 2>/dev/null) || {
             log_error "Cannot read clients from $XUI_DB"; exit 1; }
     if [[ -z "$rows" ]]; then
         echo "No clients."
@@ -162,7 +162,7 @@ cmd_list() {
         up=0; down=0; en="no"
         [[ "$enable" == "1" ]] && en="yes"
         traffic=$(sqlite3 -separator $'\t' "$XUI_DB" \
-            "SELECT up, down FROM client_traffics WHERE email='${email//\'/\'\'}';" 2>/dev/null) || true
+            <<< "SELECT up, down FROM client_traffics WHERE email='${email//\'/\'\'}';" 2>/dev/null) || true
         if [[ -n "$traffic" ]]; then
             up="${traffic%%$'\t'*}"; down="${traffic#*$'\t'}"
         fi
@@ -192,7 +192,7 @@ cmd_link() {
     if [[ -z "$name" ]]; then log_error "Usage: vpn link <name>"; exit 1; fi
     local sub_id
     sub_id=$(sqlite3 "$XUI_DB" \
-        "SELECT sub_id FROM clients WHERE email='${name//\'/\'\'}' LIMIT 1;" 2>/dev/null) || true
+        <<< "SELECT sub_id FROM clients WHERE email='${name//\'/\'\'}' LIMIT 1;" 2>/dev/null) || true
     if [[ -z "$sub_id" ]]; then
         log_error "Client '$name' not found"
         exit 1
@@ -223,7 +223,7 @@ cmd_remove() {
     fi
 
     local found
-    found=$(xui_api_list_clients | jq -r --arg n "$name" 'first(.[]?|select(.email==$n).email) // empty') || true
+    found=$(xui_api_list_clients | jq -r --rawfile n <(printf '%s' "$name") 'first(.[]?|select(.email==$n).email) // empty') || true
     if [[ -z "$found" ]]; then
         log_error "Client '$name' not found"
         exit 1

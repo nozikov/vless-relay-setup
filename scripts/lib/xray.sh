@@ -141,7 +141,7 @@ XRAYEOF
         cdn_extra_json=$(xhttp_extra_json)
         if ! tmp_config=$(jq \
             --argjson cdn_port "$cdn_port" \
-            --arg cdn_path "$cdn_path" \
+            --rawfile cdn_path <(printf '%s' "$cdn_path") \
             --argjson extra "$cdn_extra_json" \
             '.inbounds += [{
                 tag: "vless-cdn-in",

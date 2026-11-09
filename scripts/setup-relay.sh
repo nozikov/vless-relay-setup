@@ -223,10 +223,10 @@ main() {
                 local download_extra extra_encoded
                 download_extra=$(jq -n -c \
                     --arg padding "100-1000" \
-                    --arg exit_addr "$exit_ip" \
-                    --arg exit_sni_val "$exit_sni" \
-                    --arg exit_pubkey_val "$exit_pubkey" \
-                    --arg exit_short_id_val "$exit_short_id" \
+                    --rawfile exit_addr <(printf '%s' "$exit_ip") \
+                    --rawfile exit_sni_val <(printf '%s' "$exit_sni") \
+                    --rawfile exit_pubkey_val <(printf '%s' "$exit_pubkey") \
+                    --rawfile exit_short_id_val <(printf '%s' "$exit_short_id") \
                     '{
                         xPaddingBytes: $padding,
                         downloadSettings: {
@@ -244,7 +244,7 @@ main() {
                             }
                         }
                     }')
-                extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$download_extra")
+                extra_encoded=$(url_quote "$download_extra")
                 cdn_vless_link_asym="vless://${exit_uuid}@${cdn_domain}:443?type=xhttp&security=tls&sni=${cdn_domain}&host=${cdn_domain}&path=%2F${cdn_path}&mode=packet-up&extra=${extra_encoded}#CDN%20Asymmetric"
             fi
 
@@ -262,7 +262,7 @@ main() {
             # since 3X-UI's built-in subscription generator does not emit extra=.
             local relay_extra_json relay_extra_encoded
             relay_extra_json=$(xhttp_extra_json)
-            relay_extra_encoded=$(python3 -c "import urllib.parse, sys; print(urllib.parse.quote(sys.argv[1]))" "$relay_extra_json")
+            relay_extra_encoded=$(url_quote "$relay_extra_json")
 
             sub_proxy_port=$((sub_port + 1))
             setup_sub_proxy "$sub_port" "$cdn_vless_link" "$sub_proxy_port" "$cdn_domain" "$cdn_path" "$cdn_vless_link_asym" "$direct_vless_link" "$hysteria_link" "$hysteria_port" "$hysteria_port_end" "$hysteria_obfs" "$relay_extra_encoded"

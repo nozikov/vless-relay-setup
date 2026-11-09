@@ -101,13 +101,13 @@ count_installer_api_tokens() {
     local has_table n
     [[ -f "$XUI_DB" ]] || { echo 0; return 0; }
     has_table=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_tokens';" 2>/dev/null) || has_table=0
+        <<< "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_tokens';" 2>/dev/null) || has_table=0
     if [[ "${has_table:-0}" -eq 0 ]]; then
         echo 0
         return 0
     fi
     n=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM api_tokens WHERE name IN (${XUI_INSTALLER_TOKEN_NAMES});" 2>/dev/null) || n=0
+        <<< "SELECT COUNT(*) FROM api_tokens WHERE name IN (${XUI_INSTALLER_TOKEN_NAMES});" 2>/dev/null) || n=0
     echo "${n:-0}"
 }
 
@@ -119,7 +119,7 @@ revoke_installer_api_tokens() {
     rm -f "$XUI_INSTALL_RESULT"
     n=$(count_installer_api_tokens)
     if [[ "$n" -gt 0 ]]; then
-        sqlite3 "$XUI_DB" "DELETE FROM api_tokens WHERE name IN (${XUI_INSTALLER_TOKEN_NAMES});"
+        sqlite3 "$XUI_DB" <<< "DELETE FROM api_tokens WHERE name IN (${XUI_INSTALLER_TOKEN_NAMES});"
         log_info "Revoked ${n} installer-created API token(s) (install/cli-fallback)"
     fi
 }
@@ -175,7 +175,7 @@ purge_3xui_panel() {
         return 1
     fi
     if [[ -f "$XUI_DB" ]]; then
-        inbounds=$(sqlite3 "$XUI_DB" "SELECT COUNT(*) FROM inbounds;" 2>/dev/null) || inbounds=""
+        inbounds=$(sqlite3 "$XUI_DB" <<< "SELECT COUNT(*) FROM inbounds;" 2>/dev/null) || inbounds=""
     fi
     if [[ "$inbounds" =~ ^[0-9]+$ ]] && (( inbounds > 0 )) && [[ "$force" != force ]]; then
         log_warn "3X-UI panel on exit has ${inbounds} inbound(s) of its own — NOT removing it."
@@ -186,7 +186,7 @@ purge_3xui_panel() {
 
     # Read before anything is deleted (works while the panel runs, WAL included)
     if [[ -f "$XUI_DB" ]]; then
-        panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
+        panel_port=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
     fi
 
     # Older installers may have put the unit elsewhere (e.g. /usr/lib/systemd/system)
@@ -200,7 +200,7 @@ purge_3xui_panel() {
         ts=$(date +%Y%m%d-%H%M%S)
         backup="/root/x-ui-exit-backup-${ts}.db"
         install -m 0600 /dev/null "$backup"
-        if ! sqlite3 "$XUI_DB" ".backup '${backup}'" 2>/dev/null; then
+        if ! sqlite3 "$XUI_DB" <<< ".backup '${backup}'" 2>/dev/null; then
             cp "$XUI_DB" "$backup" || log_warn "3X-UI DB backup failed — continuing (exit traffic does not depend on the panel)"
         fi
         chmod 0600 "$backup"
@@ -297,15 +297,15 @@ disable_acme_cron() {
 # been modified yet, so refusing to continue without a usable backup is safe).
 xui_db_backup() {
     local dest="$1" check=""
-    if ! (umask 077 && sqlite3 -cmd ".timeout 10000" "$XUI_DB" ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
+    if ! (umask 077 && sqlite3 -cmd ".timeout 10000" "$XUI_DB" <<< ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
         log_warn "sqlite3 .backup failed — retrying with x-ui stopped"
         rm -f "$dest"
         x-ui stop || true
-        if ! (umask 077 && sqlite3 "$XUI_DB" ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
+        if ! (umask 077 && sqlite3 "$XUI_DB" <<< ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
             # Fold any leftover WAL into the main file first, or cp misses commits
             # (integrity_check below checks structure, not completeness).
             rm -f "$dest"
-            sqlite3 "$XUI_DB" "PRAGMA wal_checkpoint(TRUNCATE);" > /dev/null 2>&1 || true
+            sqlite3 "$XUI_DB" <<< "PRAGMA wal_checkpoint(TRUNCATE);" > /dev/null 2>&1 || true
             # || true: x-ui must come back up even if cp fails (full disk is the
             # likely reason both .backup runs failed); integrity_check below refuses.
             (umask 077 && cp "$XUI_DB" "$dest") || true
@@ -352,12 +352,12 @@ xui_db_set() {
     local value="${2//\'/\'\'}"
 
     local exists
-    exists=$(sqlite3 "$XUI_DB" "SELECT COUNT(*) FROM settings WHERE key='$key';")
+    exists=$(sqlite3 "$XUI_DB" <<< "SELECT COUNT(*) FROM settings WHERE key='$key';")
 
     if [[ "$exists" -gt 0 ]]; then
-        sqlite3 "$XUI_DB" "UPDATE settings SET value='$value' WHERE key='$key';"
+        sqlite3 "$XUI_DB" <<< "UPDATE settings SET value='$value' WHERE key='$key';"
     else
-        sqlite3 "$XUI_DB" "INSERT INTO settings (key, value) VALUES ('$key', '$value');"
+        sqlite3 "$XUI_DB" <<< "INSERT INTO settings (key, value) VALUES ('$key', '$value');"
     fi
 }
 
@@ -419,7 +419,7 @@ configure_3xui_relay_template() {
     # alone. Public exit IP → no finalRules (default behaviour, nothing to allow).
     local fragment_final_rules='null'
     if is_private_ipv4 "$exit_ip"; then
-        fragment_final_rules=$(jq -n -c --arg ip "$exit_ip" '[{action: "allow", ip: [$ip]}]')
+        fragment_final_rules=$(jq -n -c --rawfile ip <(printf '%s' "$exit_ip") '[{action: "allow", ip: [$ip]}]')
         log_warn "Exit IP $exit_ip is a private/CGNAT address — allowing exactly this IP"
         log_warn "  in the 'fragment' outbound finalRules (xray-core 26.10+ blocks private targets)."
         log_warn "  The Relay channel works only if this relay reaches $exit_ip directly."
@@ -429,12 +429,12 @@ configure_3xui_relay_template() {
 
     local template
     template=$(jq -n -c \
-        --arg exit_ip "$exit_ip" \
+        --rawfile exit_ip <(printf '%s' "$exit_ip") \
         --argjson exit_port "$exit_port" \
-        --arg exit_uuid "$exit_uuid" \
-        --arg exit_pubkey "$exit_pubkey" \
-        --arg exit_short_id "$exit_short_id" \
-        --arg exit_sni "$exit_sni" \
+        --rawfile exit_uuid <(printf '%s' "$exit_uuid") \
+        --rawfile exit_pubkey <(printf '%s' "$exit_pubkey") \
+        --rawfile exit_short_id <(printf '%s' "$exit_short_id") \
+        --rawfile exit_sni <(printf '%s' "$exit_sni") \
         --argjson api_port "$api_port" \
         --argjson extra "$extra_json" \
         --argjson fragment_final_rules "$fragment_final_rules" \
@@ -573,13 +573,13 @@ create_3xui_relay_inbound() {
     extra_json=$(xhttp_extra_json)
     lf_json=$(reality_limit_fallback_json)
     stream_settings=$(jq -n -c \
-        --arg private_key "$private_key" \
-        --arg public_key "$public_key" \
-        --arg short_id "$short_id" \
-        --arg dest "$dest" \
-        --arg server_name "$server_name" \
+        --rawfile private_key <(printf '%s' "$private_key") \
+        --rawfile public_key <(printf '%s' "$public_key") \
+        --rawfile short_id <(printf '%s' "$short_id") \
+        --rawfile dest <(printf '%s' "$dest") \
+        --rawfile server_name <(printf '%s' "$server_name") \
         --argjson xver "$xver" \
-        --arg relay_path "$relay_xhttp_path" \
+        --rawfile relay_path <(printf '%s' "$relay_xhttp_path") \
         --argjson extra "$extra_json" \
         --argjson lf "$lf_json" \
         '{
@@ -603,10 +603,10 @@ create_3xui_relay_inbound() {
     # v3 inbounds/add: settings/streamSettings/sniffing are escaped JSON STRINGS.
     local inbound_json
     inbound_json=$(jq -n -c \
-        --arg remark "$remark" \
-        --arg settings "$settings" \
-        --arg stream "$stream_settings" \
-        --arg sniffing "$sniffing" \
+        --rawfile remark <(printf '%s' "$remark") \
+        --rawfile settings <(printf '%s' "$settings") \
+        --rawfile stream <(printf '%s' "$stream_settings") \
+        --rawfile sniffing <(printf '%s' "$sniffing") \
         '{
             remark: $remark, port: 443, protocol: "vless",
             enable: true, expiryTime: 0, total: 0, listen: "",
@@ -623,7 +623,7 @@ create_3xui_relay_inbound() {
     # the inbound id stays internal and this function returns nothing on stdout —
     # log_* write to stdout, which would otherwise pollute a captured return value.
     local seed_client
-    seed_client=$(jq -n -c --arg id "$relay_uuid" --arg s "$sub_id" \
+    seed_client=$(jq -n -c --rawfile id <(printf '%s' "$relay_uuid") --rawfile s <(printf '%s' "$sub_id") \
         '{id:$id, email:"default-user", flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:0, reset:0, comment:""}')
     xui_api_add_client "$inbound_id" "$seed_client" \
         || { log_error "Failed to create seed client (default-user)"; return 1; }
@@ -749,8 +749,8 @@ create_3xui_cdn_inbound() {
     local settings stream_settings sniffing
 
     settings=$(jq -n -c \
-        --arg uuid "$exit_uuid" \
-        --arg sub_id "$sub_id" \
+        --rawfile uuid <(printf '%s' "$exit_uuid") \
+        --rawfile sub_id <(printf '%s' "$sub_id") \
         '{
             clients: [{
                 id: $uuid,
@@ -768,7 +768,7 @@ create_3xui_cdn_inbound() {
         }')
 
     stream_settings=$(jq -n -c \
-        --arg cdn_path "$cdn_path" \
+        --rawfile cdn_path <(printf '%s' "$cdn_path") \
         '{
             network: "xhttp",
             security: "none",
@@ -782,7 +782,7 @@ create_3xui_cdn_inbound() {
 
     local external_proxy
     external_proxy=$(jq -n -c \
-        --arg dest "$cdn_domain" \
+        --rawfile dest <(printf '%s' "$cdn_domain") \
         '[{
             forceTls: "tls",
             dest: $dest,
@@ -799,10 +799,10 @@ create_3xui_cdn_inbound() {
     # Check if externalProxy column exists
     local has_external_proxy
     has_external_proxy=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM pragma_table_info('inbounds') WHERE name='externalProxy';")
+        <<< "SELECT COUNT(*) FROM pragma_table_info('inbounds') WHERE name='externalProxy';")
 
     if [[ "$has_external_proxy" -gt 0 ]]; then
-        sqlite3 "$XUI_DB" "INSERT INTO inbounds (
+        sqlite3 "$XUI_DB" <<< "INSERT INTO inbounds (
             user_id, up, down, total, remark, enable, expiry_time,
             listen, port, protocol, settings, stream_settings,
             tag, sniffing, externalProxy
@@ -818,7 +818,7 @@ create_3xui_cdn_inbound() {
         log_warn "CDN profile will not appear in subscriptions automatically"
         log_warn "Upgrade 3X-UI to latest version for full CDN subscription support"
         # Still create inbound without externalProxy
-        sqlite3 "$XUI_DB" "INSERT INTO inbounds (
+        sqlite3 "$XUI_DB" <<< "INSERT INTO inbounds (
             user_id, up, down, total, remark, enable, expiry_time,
             listen, port, protocol, settings, stream_settings,
             tag, sniffing
@@ -839,7 +839,7 @@ patch_3xui_cdn_inbound() {
 
     local current_settings
     current_settings=$(sqlite3 "$XUI_DB" \
-        "SELECT settings FROM inbounds WHERE tag='inbound-cdn';") || return 0
+        <<< "SELECT settings FROM inbounds WHERE tag='inbound-cdn';") || return 0
 
     if [[ -z "$current_settings" ]]; then
         log_warn "CDN inbound not found, skipping patch"
@@ -848,11 +848,11 @@ patch_3xui_cdn_inbound() {
 
     local patched_settings
     patched_settings=$(echo "$current_settings" | jq -c \
-        --arg sub_id "$sub_id" \
+        --rawfile sub_id <(printf '%s' "$sub_id") \
         '.clients[0].subId = $sub_id | .clients[0].tgId = 0 | .clients[0].reset = 0')
     local s_settings="${patched_settings//\'/\'\'}"
     sqlite3 "$XUI_DB" \
-        "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-cdn';"
+        <<< "UPDATE inbounds SET settings='${s_settings}' WHERE tag='inbound-cdn';"
 
     log_ok "CDN inbound patched (subId for subscriptions)"
 }
@@ -869,7 +869,7 @@ sync_cdn_clients() {
 
     # Shared exit UUID = the UUID of the existing CDN inbound's client set.
     # Read it from the CDN inbound's settings JSON (read-only, sqlite is fine).
-    exit_uuid=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='inbound-cdn';" \
+    exit_uuid=$(sqlite3 "$XUI_DB" <<< "SELECT settings FROM inbounds WHERE tag='inbound-cdn';" \
         | jq -r 'first(.clients[]?.id) // empty') || true
     if [[ -z "$exit_uuid" ]]; then
         log_warn "Cannot determine CDN exit UUID — skipping CDN sync"
@@ -880,7 +880,7 @@ sync_cdn_clients() {
     local relay_clients
     # Read relay clients from inbound-443 settings JSON: on v3 the API's clients/add
     # back-writes this JSON in addition to the normalized tables, so it stays current.
-    relay_clients=$(sqlite3 "$XUI_DB" "SELECT settings FROM inbounds WHERE tag='inbound-443';" \
+    relay_clients=$(sqlite3 "$XUI_DB" <<< "SELECT settings FROM inbounds WHERE tag='inbound-443';" \
         | jq -c '[.clients[]? | {email: (.email + "-cdn"), subId: .subId, enable: .enable}]') || true
     [[ -z "$relay_clients" || "$relay_clients" == "null" ]] && relay_clients='[]'
     # Safety: a relay always has >=1 client (default-user). An empty desired set
@@ -900,10 +900,10 @@ sync_cdn_clients() {
     desired_emails=$(printf '%s' "$relay_clients" | jq -r '.[].email')
     while IFS= read -r email; do
         [[ -z "$email" ]] && continue
-        if ! printf '%s' "$current_cdn" | jq -e --arg e "$email" 'index($e) != null' >/dev/null; then
+        if ! printf '%s' "$current_cdn" | jq -e --rawfile e <(printf '%s' "$email") 'index($e) != null' >/dev/null; then
             local sub_id client_json
-            sub_id=$(printf '%s' "$relay_clients" | jq -r --arg e "$email" 'first(.[]|select(.email==$e).subId)')
-            client_json=$(jq -n -c --arg id "$exit_uuid" --arg e "$email" --arg s "$sub_id" \
+            sub_id=$(printf '%s' "$relay_clients" | jq -r --rawfile e <(printf '%s' "$email") 'first(.[]|select(.email==$e).subId)')
+            client_json=$(jq -n -c --rawfile id <(printf '%s' "$exit_uuid") --rawfile e <(printf '%s' "$email") --rawfile s <(printf '%s' "$sub_id") \
                 '{id:$id, email:$e, flow:"", limitIp:0, totalGB:0, expiryTime:0, enable:true, subId:$s, tgId:0, reset:0, comment:""}')
             xui_api_add_client "$cdn_id" "$client_json" \
                 || log_warn "CDN sync: failed to add $email (continuing)"
@@ -914,7 +914,7 @@ sync_cdn_clients() {
     local cur_email
     while IFS= read -r cur_email; do
         [[ -z "$cur_email" ]] && continue
-        if ! printf '%s' "$relay_clients" | jq -e --arg e "$cur_email" 'any(.[]; .email==$e)' >/dev/null; then
+        if ! printf '%s' "$relay_clients" | jq -e --rawfile e <(printf '%s' "$cur_email") 'any(.[]; .email==$e)' >/dev/null; then
             xui_api_del_client "$cur_email" || log_warn "CDN sync: failed to remove $cur_email"
         fi
     done < <(printf '%s' "$current_cdn" | jq -r '.[]')

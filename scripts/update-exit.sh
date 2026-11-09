@@ -91,7 +91,7 @@ main() {
     fi
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
     listen_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG")
-    public_key=$(xray x25519 -i "$private_key" 2>/dev/null | grep -iE "public|password" | awk '{print $NF}')
+    public_key=$(reality_public_key_from_private "$private_key")
 
     if [[ -z "$uuid" || "$uuid" == "null" ]]; then
         log_error "Failed to extract UUID from config"
