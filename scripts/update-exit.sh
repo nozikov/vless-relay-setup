@@ -355,7 +355,11 @@ EOF
     if [[ "$upgrade" == true ]]; then
         echo "  Binaries upgraded to latest versions"
     fi
-    echo "  Security re-applied"
+    if [[ "${SSH_HARDENING_SKIPPED:-false}" == true ]]; then
+        log_warn "  Security re-applied WITHOUT SSH hardening — another sshd_config.d file overrides it (see the error above)"
+    else
+        echo "  Security re-applied"
+    fi
     if [[ "$warp_enabled" == "Y" ]]; then
         echo "  WARP outbound:        enabled (AI services)"
     fi

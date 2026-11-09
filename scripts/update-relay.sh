@@ -558,7 +558,11 @@ SVCEOF
     if [[ "$upgrade" == true ]]; then
         echo "  3X-UI upgraded to latest version"
     fi
-    echo "  Security re-applied"
+    if [[ "${SSH_HARDENING_SKIPPED:-false}" == true ]]; then
+        log_warn "  Security re-applied WITHOUT SSH hardening — another sshd_config.d file overrides it (see the error above)"
+    else
+        echo "  Security re-applied"
+    fi
     echo "  Clients and subscriptions preserved"
     if [[ "$is_cdn" == true ]]; then
         echo "  CDN fallback inbound preserved"
