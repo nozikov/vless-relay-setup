@@ -88,7 +88,7 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 - `caddy.sh` — Caddy installation, Caddyfile generation, static site content, systemd dependency, sub-proxy setup, uninstall (SelfSteal mode only)
 - `reality.sh` — Reality key generation, destination site selection
 - `xray.sh` — XRAY installation, exit server JSON config (including optional CDN XHTTP inbound with padding)
-- `3xui.sh` — 3X-UI install/configure (relay), SQLite operations, SSL certs, inbound/template management, `purge_3xui_panel` (exit-side legacy teardown), `xui_bind_loopback` / `close_relay_panel_ports` (SelfSteal relay)
+- `3xui.sh` — 3X-UI install/configure (relay), SQLite operations, SSL certs, inbound/template management, `purge_3xui_panel` (exit-side legacy teardown), `xui_bind_loopback` (SelfSteal relay); UFW cleanup via `close_xui_ufw_ports` in `security.sh`
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
 - `hysteria.sh` — Hysteria 2 installation, YAML config generation, cert copy from Caddy, restart, uninstall
 - `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token; SHA-256 of it in `api_tokens` on v3.3.1+, plaintext bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write. Token and request body never go on curl's argv (visible in `ps`/`/proc/*/cmdline`): the `Authorization` header is fed as curl config on stdin (`-K -` + here-string), the JSON body via `--data-binary @<(printf …)`. Don't add a second stdin consumer to that curl.
