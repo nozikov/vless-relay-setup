@@ -127,21 +127,27 @@ _ssh_hardening_rollback() {
 # -C would test one synthetic connection only, so scan the files instead. WARN only:
 # our drop-in can't override a Match block, and the admin may have meant it.
 _ssh_warn_match_overrides() {
-    local ssh_config="$1" hits line
+    local ssh_config="$1" hits line f
+    local files=("$ssh_config")
+    for f in /etc/ssh/sshd_config.d/*.conf; do
+        [[ -f "$f" ]] && files+=("$f")
+    done
+    # `Match all` counts too: sshd -T without -C skips every Match block.
+    # Keys may be written as `Key value` or `Key=value`.
     hits=$(awk '
         FNR == 1 { in_match = 0 }
         /^[[:space:]]*#/ { next }
-        tolower($1) == "match" {
-            in_match = (tolower($2) != "all")
-            cond = $0; sub(/^[[:space:]]+/, "", cond)
-            next
+        {
+            line = $0; sub(/^[[:space:]]+/, "", line)
+            n = split(line, w, /[[:space:]]*=[[:space:]]*|[[:space:]]+/)
+            if (n < 2) next
+            k = tolower(w[1]); v = tolower(w[2])
         }
-        in_match {
-            k = tolower($1); v = tolower($2)
-            if ((k == "passwordauthentication" || k == "kbdinteractiveauthentication" || k == "challengeresponseauthentication") && v == "yes" \
-                || k == "permitrootlogin" && v == "yes")
-                printf "%s: [%s] %s %s\n", FILENAME, cond, $1, $2
-        }' "$ssh_config" /etc/ssh/sshd_config.d/*.conf 2>/dev/null) || hits=""
+        k == "match" { in_match = 1; cond = line; next }
+        in_match && v == "yes" && (k == "passwordauthentication" || k == "kbdinteractiveauthentication" \
+            || k == "challengeresponseauthentication" || k == "permitrootlogin") {
+            printf "%s: [%s] %s %s\n", FILENAME, cond, w[1], w[2]
+        }' "${files[@]}" 2>/dev/null) || true
     [[ -n "$hits" ]] || return 0
     log_warn "sshd Match blocks re-enable password/root login for some connections (not covered by sshd -T):"
     while IFS= read -r line; do

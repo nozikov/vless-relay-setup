@@ -353,6 +353,8 @@ setup_sub_proxy() {
         "RELAY_XHTTP_EXTRA=${relay_extra_encoded}" \
         "SUB_PROXY_PORT=${proxy_port}" || return 1
     write_sub_proxy_unit
+    # Unit backups of old update-relay runs: 0644, links with the exit UUID inside
+    rm -f "${SUB_PROXY_UNIT}".bak.* 2>/dev/null || true
 
     systemctl daemon-reload
     systemctl enable sub-proxy

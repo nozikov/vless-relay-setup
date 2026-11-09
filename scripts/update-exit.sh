@@ -92,6 +92,7 @@ main() {
     server_name=$(jq -r '.inbounds[0].streamSettings.realitySettings.serverNames[0]' "$XRAY_CONFIG")
     listen_port=$(jq -r '.inbounds[0].port' "$XRAY_CONFIG")
     public_key=$(reality_public_key_from_private "$private_key")
+    [[ -n "$public_key" ]] || log_warn "Could not derive the Reality public key from the config (openssl) — EXIT_PUBLIC_KEY in the info file will be empty"
 
     if [[ -z "$uuid" || "$uuid" == "null" ]]; then
         log_error "Failed to extract UUID from config"
