@@ -174,3 +174,28 @@ check_ram_free() {
     log_ok "RAM: ${mb_free}MB available"
     return 0
 }
+
+# 3X-UI older than the pinned XUI_VERSION (common.sh) → WARN: the pin is what closes
+# the published v3.x advisories (#53), and update-* without --upgrade never moves the
+# panel. $1 = the update command to suggest (update-exit / update-relay).
+# Returns 0=OK (or nothing to compare), 1=WARN.
+check_xui_version() {
+    local update_cmd="$1"
+    local required="${XUI_VERSION#v}" installed
+    installed=$(xui_installed_version)
+    # No binary (the x-ui service check already FAILs) or a dev build: nothing to compare
+    if [[ -z "$installed" || "$installed" == dev+* ]]; then
+        return 0
+    fi
+    if [[ "$installed" != "$required" ]] && \
+       printf '%s\n%s\n' "$installed" "$required" | sort -V -C; then
+        log_warn "3X-UI ${installed} is older than the pinned ${required} — run: ./setup.sh ${update_cmd} --upgrade"
+        return 1
+    fi
+    if [[ "$installed" == "$required" ]]; then
+        log_ok "3X-UI version ${installed} (pinned)"
+    else
+        log_ok "3X-UI version ${installed} (newer than pinned ${required} — not verified by these scripts)"
+    fi
+    return 0
+}
