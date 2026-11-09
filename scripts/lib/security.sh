@@ -122,6 +122,33 @@ _ssh_hardening_rollback() {
     fi
 }
 
+# sshd -T without -C evaluates no Match block, so a provider's
+# `Match Address 10.0.0.0/8` + `PasswordAuthentication yes` passes the check above.
+# -C would test one synthetic connection only, so scan the files instead. WARN only:
+# our drop-in can't override a Match block, and the admin may have meant it.
+_ssh_warn_match_overrides() {
+    local ssh_config="$1" hits line
+    hits=$(awk '
+        FNR == 1 { in_match = 0 }
+        /^[[:space:]]*#/ { next }
+        tolower($1) == "match" {
+            in_match = (tolower($2) != "all")
+            cond = $0; sub(/^[[:space:]]+/, "", cond)
+            next
+        }
+        in_match {
+            k = tolower($1); v = tolower($2)
+            if ((k == "passwordauthentication" || k == "kbdinteractiveauthentication" || k == "challengeresponseauthentication") && v == "yes" \
+                || k == "permitrootlogin" && v == "yes")
+                printf "%s: [%s] %s %s\n", FILENAME, cond, $1, $2
+        }' "$ssh_config" /etc/ssh/sshd_config.d/*.conf 2>/dev/null) || hits=""
+    [[ -n "$hits" ]] || return 0
+    log_warn "sshd Match blocks re-enable password/root login for some connections (not covered by sshd -T):"
+    while IFS= read -r line; do
+        log_warn "  $line"
+    done <<< "$hits"
+}
+
 setup_ssh_hardening() {
     local ssh_port="${1:-22}"
     local ssh_config="/etc/ssh/sshd_config"
@@ -243,6 +270,7 @@ SSHD
     if [[ "$eff_ports" != "$ssh_port" ]]; then
         log_warn "sshd will also listen on other ports (${eff_ports//$'\n'/,}) — a Port line outside our config; UFW opens only ${ssh_port}"
     fi
+    _ssh_warn_match_overrides "$ssh_config"
 
     # Service is named "ssh" on Debian/Ubuntu, "sshd" on RHEL/Fedora
     if systemctl list-unit-files ssh.service &>/dev/null; then
