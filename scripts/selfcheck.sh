@@ -33,6 +33,18 @@ run_selfcheck_exit() {
 
     if [[ -f /etc/hysteria/config.yaml ]]; then
         verify_service_running hysteria-server "Hysteria 2" || _fails=$((_fails + 1))
+        # listen: ":PORT" or ":PORT-PORT_END" (port hopping) — check the first port.
+        local hy_listen hy_port
+        hy_listen=$(grep -E '^listen:' /etc/hysteria/config.yaml 2>/dev/null | \
+            head -1 | awk '{print $2}') || true
+        hy_port="${hy_listen##*:}"
+        hy_port="${hy_port%%-*}"
+        if [[ "$hy_port" =~ ^[0-9]+$ ]]; then
+            verify_port_listening "$hy_port" "Hysteria 2" udp || _fails=$((_fails + 1))
+        else
+            log_warn "Cannot parse Hysteria listen port from /etc/hysteria/config.yaml"
+            _warns=$((_warns + 1))
+        fi
     fi
 
     if command -v warp-cli &>/dev/null && \
