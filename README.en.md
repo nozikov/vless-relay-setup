@@ -375,6 +375,8 @@ sudo ./scripts/setup.sh update-relay --upgrade
 
 > **Upgrading to v1.11.0 (from ≤ v1.10.x):** in v1.11.0 the relay is managed through the 3X-UI v3.x REST API, so the panel binary is upgraded from v2.8.11 to v3.1.0. This transition **requires** the `--upgrade` flag — without it the new code can't reach the v3 API and the update breaks. Existing clients migrate automatically (3X-UI's seeder moves them into the normalized tables). **Back up** `/etc/x-ui/x-ui.db` **before upgrading.** Order is unchanged: exit first, then relay.
 
+> **Upgrading to v1.12.0:** the 3X-UI panel is pinned to v3.11.0, which closes the published advisories affecting v3.1.0. The panel is upgraded only with the `--upgrade` flag — run `update-exit --upgrade`, then `update-relay --upgrade`. Without the flag everything keeps working on the old panel and selfcheck shows a warning. On Ubuntu 22.10+ / 24.04 the update switches SSH from `ssh.socket` to `ssh.service` once (the current session stays up). **Back up** `/etc/x-ui/x-ui.db` **before upgrading.**
+
 ### Uninstalling
 
 ```bash
