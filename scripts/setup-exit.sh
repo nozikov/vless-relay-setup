@@ -105,6 +105,15 @@ main() {
     update_system
     install_dependencies
 
+    # No 3X-UI on exit since v1.13.0 (issue #40): traffic is the standalone
+    # xray.service (+ hysteria), the panel only added a public admin port.
+    # A --force re-run on a box set up by an older version still has it — drop it
+    # before XRAY is (re)configured, so its listeners can't collide with new ports.
+    if xui_panel_installed; then
+        log_info "=== Removing leftover 3X-UI panel (not used on exit) ==="
+        purge_3xui_panel "$ssh_port"
+    fi
+
     # --- Step 3: Install and configure XRAY ---
     log_info "=== XRAY Setup ==="
     install_xray
@@ -159,14 +168,6 @@ main() {
     fi
 
     restart_xray
-
-    # No 3X-UI on exit since v1.13.0 (issue #40): traffic is the standalone
-    # xray.service (+ hysteria), the panel only added a public admin port.
-    # A --force re-run on a box set up by an older version still has it — drop it.
-    if xui_panel_installed; then
-        log_info "=== Removing leftover 3X-UI panel (not used on exit) ==="
-        purge_3xui_panel "$ssh_port"
-    fi
 
     if [[ -n "$selfsteal_domain" ]]; then
         start_caddy
