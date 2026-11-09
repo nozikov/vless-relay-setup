@@ -132,7 +132,8 @@ setup_ssh_hardening() {
     local socket_was_active=false socket_was_enabled=false service_was_enabled=false
     local service_was_active=false
     local socket_switched=false
-    local dropin effective eff_ports eff_password has_include=false
+    local dropin effective eff_ports eff_password eff_kbd eff_root has_include=false
+    local overriders
 
     log_info "Hardening SSH..."
 
@@ -152,6 +153,11 @@ setup_ssh_hardening() {
     if [[ -f "$SSH_HARDENING_DROPIN" ]]; then
         cp -p "$SSH_HARDENING_DROPIN" "$backup_dir/vpn-hardening.conf"
     fi
+    # Interrupted mid-edit (Ctrl-C, ssh drop → SIGHUP) the files could be left
+    # without our Port while the backup in /run vanishes on reboot → lockout after
+    # a reboot. Put them back on a signal until they are validated.
+    # shellcheck disable=SC2064  # expand backup_dir now; the trap may outlive the local
+    trap "cp -p '${backup_dir}/sshd_config' '${ssh_config}'; if [[ -f '${backup_dir}/vpn-hardening.conf' ]]; then cp -p '${backup_dir}/vpn-hardening.conf' '${SSH_HARDENING_DROPIN}'; else rm -f '${SSH_HARDENING_DROPIN}'; fi; rm -rf '${backup_dir}'; exit 130" INT HUP TERM
 
     # The main file is edited too: it is what sshd reads when there is no
     # Include (older Debian), and it keeps the main file consistent with the
@@ -199,6 +205,7 @@ SSHD
         log_error "sshd_config failed validation (sshd -t) — restoring it, sshd NOT restarted"
         _ssh_restore_config_files
         rm -rf "$backup_dir"
+        trap - INT HUP TERM
         exit 1
     fi
 
@@ -208,13 +215,29 @@ SSHD
     effective=$("$sshd_bin" -T -f "$ssh_config" 2>/dev/null) || true
     eff_password=$(awk '$1 == "passwordauthentication" {print $2; exit}' <<< "$effective")
     eff_ports=$(awk '$1 == "port" {print $2}' <<< "$effective")
-    if [[ "$eff_password" != "no" ]] || ! grep -qx "$ssh_port" <<< "$eff_ports"; then
-        log_error "Effective sshd config (sshd -T) does not match: passwordauthentication=${eff_password:-?}, port(s)=${eff_ports//$'\n'/,} (expected no / ${ssh_port})"
-        log_error "Another file in /etc/ssh/sshd_config.d probably overrides it — restoring, sshd NOT restarted"
+    # keyboard-interactive is a password path too under UsePAM yes (Debian/Ubuntu
+    # default); sshd -T prints prohibit-password as "without-password".
+    eff_kbd=$(awk '$1 == "kbdinteractiveauthentication" {print $2; exit}' <<< "$effective")
+    eff_root=$(awk '$1 == "permitrootlogin" {print $2; exit}' <<< "$effective")
+    if [[ "$eff_password" != "no" || "$eff_kbd" != "no" ]] \
+       || [[ "$eff_root" != "without-password" && "$eff_root" != "prohibit-password" && "$eff_root" != "no" ]] \
+       || ! grep -qx "$ssh_port" <<< "$eff_ports"; then
+        overriders=$(grep -liE '^[[:space:]]*(PasswordAuthentication|KbdInteractiveAuthentication|PermitRootLogin|Port)[[:space:]]' \
+            /etc/ssh/sshd_config.d/*.conf 2>/dev/null | grep -vxF "$SSH_HARDENING_DROPIN" | tr '\n' ' ') || true
         _ssh_restore_config_files
         rm -rf "$backup_dir"
+        trap - INT HUP TERM
+        log_error "Effective sshd config (sshd -T) does not match: passwordauthentication=${eff_password:-?}, kbdinteractiveauthentication=${eff_kbd:-?}, permitrootlogin=${eff_root:-?}, port(s)=${eff_ports//$'\n'/,} (expected no / no / prohibit-password / ${ssh_port})"
+        log_error "Overridden by another sshd config file${overriders:+: ${overriders}}— restored, sshd NOT restarted"
+        if [[ "${SSH_HARDENING_SOFT:-false}" == true ]]; then
+            # update-*: XRAY is already reconfigured at this point; aborting would
+            # skip the remaining steps for nothing — sshd was not touched.
+            log_warn "Continuing WITHOUT SSH hardening. Fix the file above, then re-run the update."
+            return 0
+        fi
         exit 1
     fi
+    trap - INT HUP TERM
     if [[ "$eff_ports" != "$ssh_port" ]]; then
         log_warn "sshd will also listen on other ports (${eff_ports//$'\n'/,}) — a Port line outside our config; UFW opens only ${ssh_port}"
     fi
@@ -427,7 +450,7 @@ JAIL
 }
 
 setup_security() {
-    # Usage: setup_security [--skip-ssh] [--ssh-port PORT] port:label [port:label ...]
+    # Usage: setup_security [--skip-ssh] [--soft-ssh] [--ssh-port PORT] port:label [port:label ...]
     local skip_ssh=false
     local ssh_port=22
     local keep_ports=() entry
@@ -435,6 +458,8 @@ setup_security() {
         case "$1" in
             --skip-ssh) skip_ssh=true; shift ;;
             --ssh-port) ssh_port="$2"; shift 2 ;;
+            # update-*: an sshd -T mismatch skips hardening with a WARN instead of exit
+            --soft-ssh) SSH_HARDENING_SOFT=true; shift ;;
             *) break ;;
         esac
     done
