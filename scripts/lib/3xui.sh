@@ -164,17 +164,24 @@ disable_acme_cron() {
 # panel runs misses commits that still sit in x-ui.db-wal and can copy a torn page
 # set; sqlite's online backup API reads a consistent snapshot through the WAL and is
 # safe against a running panel. Busy timeout covers a panel holding the write lock.
-# Fallback (sqlite3 .backup failed): stop x-ui — a clean shutdown flushes memory to
-# the DB and checkpoints the WAL — then `cp` the main file, then start it again.
+# Fallback (sqlite3 .backup failed): stop x-ui (flushes memory to the DB, releases
+# locks), retry .backup; if that fails too, wal_checkpoint(TRUNCATE) + `cp` the main
+# file. x-ui is started again afterwards.
 # Either way the result must pass integrity_check, otherwise exit 1 (nothing has
 # been modified yet, so refusing to continue without a usable backup is safe).
 xui_db_backup() {
     local dest="$1" check=""
     if ! (umask 077 && sqlite3 -cmd ".timeout 10000" "$XUI_DB" ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
-        log_warn "sqlite3 .backup failed — falling back to x-ui stop + cp"
+        log_warn "sqlite3 .backup failed — retrying with x-ui stopped"
         rm -f "$dest"
         x-ui stop || true
-        (umask 077 && cp "$XUI_DB" "$dest")
+        if ! (umask 077 && sqlite3 "$XUI_DB" ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
+            # Fold any leftover WAL into the main file first, or cp misses commits
+            # (integrity_check below checks structure, not completeness).
+            rm -f "$dest"
+            sqlite3 "$XUI_DB" "PRAGMA wal_checkpoint(TRUNCATE);" > /dev/null 2>&1 || true
+            (umask 077 && cp "$XUI_DB" "$dest")
+        fi
         x-ui start
     fi
     chmod 0600 "$dest"
