@@ -244,22 +244,32 @@ configure_apt_lock_timeout() {
 
 # `apt-get update` with retries. DPkg::Lock::Timeout only covers the dpkg frontend
 # lock; the lists lock (/var/lib/apt/lists/lock), held by apt-daily on a VM's first
-# boot, still fails `apt-get update` immediately. Retry up to 30 × 10s (~5 min) —
-# also covers a transient mirror error. Use this for EVERY `apt-get update` in
-# scripts/. Returns 1 when all attempts failed (callers run under set -e).
+# boot, still fails `apt-get update` immediately. Lock errors are retried up to
+# 30 × 10s (~5 min); any other error (broken third-party repo, NO_PUBKEY, mirror
+# outage) gets only 3 attempts so it fails fast with apt's output. Use this for
+# EVERY `apt-get update` in scripts/. Returns 1 on failure (callers run under set -e).
 apt_update_retry() {
-    local attempt max_attempts=30
+    local attempt max_attempts=30 other_failures=0 max_other=3 out
     configure_apt_lock_timeout
     for ((attempt = 1; attempt <= max_attempts; attempt++)); do
-        if apt-get update -qq; then
+        if out=$(apt-get update -qq 2>&1); then
             return 0
         fi
-        if ((attempt < max_attempts)); then
-            log_warn "apt-get update failed (attempt ${attempt}/${max_attempts}; apt lists lock held by apt-daily?) — retrying in 10s"
-            sleep 10
+        if grep -qiE 'could not get lock|lists/lock|is held by process' <<< "$out"; then
+            log_warn "apt lists lock is held (apt-daily?) — retrying in 10s (attempt ${attempt}/${max_attempts})"
+        else
+            other_failures=$((other_failures + 1))
+            if ((other_failures >= max_other)); then
+                printf '%s\n' "$out" >&2
+                log_error "apt-get update failed ${other_failures} times (not a lock error)"
+                return 1
+            fi
+            log_warn "apt-get update failed (attempt ${other_failures}/${max_other}) — retrying in 10s"
         fi
+        ((attempt < max_attempts)) && sleep 10
     done
-    log_error "apt-get update failed after ${max_attempts} attempts"
+    printf '%s\n' "$out" >&2
+    log_error "apt-get update still blocked by the lists lock after ${max_attempts} attempts"
     return 1
 }
 
