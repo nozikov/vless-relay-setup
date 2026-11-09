@@ -3,6 +3,8 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/xui-api.sh"
+# ufw_close_tcp_port (purge_3xui_panel, close_relay_panel_ports)
+source "$(dirname "${BASH_SOURCE[0]}")/security.sh"
 
 XUI_BIN="${XUI_MAIN_FOLDER:-/usr/local/x-ui}/x-ui"
 XUI_DB="/etc/x-ui/x-ui.db"
@@ -87,7 +89,7 @@ run_3xui_installer() {
 # panel with no tokens, "cli-fallback" (rotated) on a later `-getApiToken`, i.e. a
 # re-run that resets default credentials. Their plaintext goes to stdout — our tee'd
 # /var/log/vpn-setup-*.log — and to install-result.env. We never use them (the relay
-# has its own "vpn-cli" token, the exit panel needs none), so they are pure exposure.
+# has its own "vpn-cli" token), so they are pure exposure. Relay-only since v1.13.0.
 # Exact names from main.go (installTokenName / cliFallbackTokenName); tokens the
 # operator created in the panel are left alone.
 XUI_INSTALLER_TOKEN_NAMES="'install','cli-fallback'"
@@ -136,6 +138,126 @@ install_3xui() {
         log_error "3X-UI installation failed"
         exit 1
     fi
+}
+
+# True if any piece of a 3X-UI install is present (binary, menu script, unit or DB).
+xui_panel_installed() {
+    [[ -e "${XUI_MAIN_FOLDER:-/usr/local/x-ui}" || -e /usr/bin/x-ui || -e "$XUI_DB" || \
+       -e /etc/systemd/system/x-ui.service ]]
+}
+
+# Remove the 3X-UI panel from an EXIT server (issue #40). The exit panel is purely
+# decorative — traffic is the standalone xray.service (/usr/local/bin/xray) +
+# hysteria-server; the panel runs its own xray copy from /usr/local/x-ui/bin and
+# has no inbounds. Manual teardown instead of `x-ui uninstall`: that one is
+# interactive, warns "xray will also uninstalled" and deletes itself mid-run, and
+# we want to keep control of exactly what goes (never /usr/local/bin/xray,
+# /usr/local/etc/xray, /var/log/xray, Caddy, Hysteria).
+# The DB is backed up to /root first (0600). The UFW rule for the panel port is
+# closed: the port from the DB's webPort plus any rule carrying our "3X-UI Panel"
+# comment — never 80/443/SSH. Idempotent: on a box without a panel it is a no-op.
+# $1 = SSH port (protected from the UFW cleanup), default 22.
+purge_3xui_panel() {
+    local ssh_port="${1:-22}"
+    local panel_port="" ports=() added p backup ts f2b_changed=false f svc line
+
+    if ! xui_panel_installed; then
+        log_info "3X-UI panel not installed — nothing to purge"
+        return 0
+    fi
+    log_info "Removing decorative 3X-UI panel from exit (issue #40)..."
+
+    # Read before anything is deleted (works while the panel runs, WAL included)
+    if [[ -f "$XUI_DB" ]]; then
+        panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
+    fi
+
+    systemctl stop x-ui 2>/dev/null || true
+    systemctl disable x-ui 2>/dev/null || true
+
+    # Backup after stop: the panel has flushed its state; .backup folds in the WAL
+    if [[ -f "$XUI_DB" ]]; then
+        ts=$(date +%Y%m%d-%H%M%S)
+        backup="/root/x-ui-exit-backup-${ts}.db"
+        install -m 0600 /dev/null "$backup"
+        if ! sqlite3 "$XUI_DB" ".backup '${backup}'" 2>/dev/null; then
+            cp "$XUI_DB" "$backup"
+        fi
+        chmod 0600 "$backup"
+        log_ok "3X-UI DB backed up: $backup"
+    fi
+
+    rm -f /etc/systemd/system/x-ui.service /etc/systemd/system/multi-user.target.wants/x-ui.service
+    rm -rf /etc/systemd/system/x-ui.service.d
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed x-ui 2>/dev/null || true
+
+    rm -rf "${XUI_MAIN_FOLDER:-/usr/local/x-ui}" /etc/x-ui /var/log/x-ui
+    rm -f /usr/bin/x-ui /etc/default/x-ui
+
+    # IP Limit fail2ban bits of `x-ui setup-fail2ban` (we always ran the installer
+    # with XUI_ENABLE_FAIL2BAN=false, so normally absent). Our jail.local stays.
+    for f in /etc/fail2ban/jail.d/3x-ipl.conf /etc/fail2ban/jail.d/3x-ipl-backend.conf \
+             /etc/fail2ban/filter.d/3x-ipl.conf /etc/fail2ban/action.d/3x-ipl.conf; do
+        if [[ -e "$f" ]]; then
+            rm -f "$f"
+            f2b_changed=true
+        fi
+    done
+    if [[ "$f2b_changed" == true ]]; then
+        systemctl restart fail2ban 2>/dev/null || true
+        log_ok "Removed 3X-UI IP Limit fail2ban jail"
+    fi
+
+    # UFW: DB webPort + every rule labelled "3X-UI Panel" (the port may have been
+    # changed in the panel since setup).
+    [[ -n "$panel_port" ]] && ports+=("$panel_port")
+    if command -v ufw &> /dev/null; then
+        added=$(ufw show added 2>/dev/null) || true
+        while IFS= read -r line; do
+            if [[ "$line" =~ ^ufw\ allow\ ([0-9]+)/tcp\ comment\ \'3X-UI\ Panel\'$ ]]; then
+                ports+=("${BASH_REMATCH[1]}")
+            fi
+        done <<< "$added"
+    fi
+    for p in "${ports[@]}"; do
+        if [[ "$p" == "80" || "$p" == "443" || "$p" == "22" || "$p" == "$ssh_port" ]]; then
+            continue
+        fi
+        ufw_close_tcp_port "$p" "3X-UI Panel"
+    done
+
+    log_ok "3X-UI panel removed (standalone xray untouched)"
+
+    # The panel never managed these — make sure they are still up
+    for svc in xray caddy hysteria-server; do
+        systemctl is-enabled --quiet "$svc" 2>/dev/null || continue
+        if systemctl is-active --quiet "$svc"; then
+            log_ok "${svc} still running"
+        else
+            log_warn "${svc} is not running after the panel removal — check: journalctl -u ${svc}"
+        fi
+    done
+}
+
+# SelfSteal relay (issue #40): the panel and the subscription server are reached
+# only through Caddy (reverse_proxy 127.0.0.1:<port>) — bind both to loopback so
+# they don't answer on the public IP even with UFW off. Direct DB write: MUST run
+# inside an `x-ui stop` ... `x-ui start` window. lib/xui-api.sh and sub-proxy
+# (SUB_UPSTREAM) already talk to 127.0.0.1.
+xui_bind_loopback() {
+    xui_db_set "webListen" "127.0.0.1"
+    xui_db_set "subListen" "127.0.0.1"
+}
+
+# SelfSteal relay: drop UFW allow rules for the panel/subscription ports that older
+# versions (update-relay) opened. $@ = ports (empty values ignored).
+close_relay_panel_ports() {
+    local p
+    for p in "$@"; do
+        [[ -n "$p" ]] || continue
+        ufw_close_tcp_port "$p" "3X-UI panel/subscription — reachable via Caddy only"
+    done
 }
 
 # In SelfSteal mode Caddy owns all certs (its own + copied to Hysteria),
@@ -255,7 +377,7 @@ configure_3xui() {
     # Set admin credentials
     "$XUI_BIN" setting -username "$admin_user" -password "$admin_pass"
 
-    # Same window: drop the admin token install.sh minted and printed (both roles)
+    # Same window: drop the admin token install.sh minted and printed
     revoke_installer_api_tokens
 
     # Start with new settings

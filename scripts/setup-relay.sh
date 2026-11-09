@@ -176,8 +176,9 @@ main() {
     if [[ -n "$selfsteal_domain" ]]; then
         x-ui stop
 
-        # Bind panel to localhost (Caddy proxies external access)
-        xui_db_set "webListen" "127.0.0.1"
+        # Bind panel + subscription server to localhost: reachable only through
+        # Caddy (issue #40); their ports are never opened in UFW in SelfSteal.
+        xui_bind_loopback
         # Clear panel cert — guarantees plain HTTP to Caddy reverse proxy
         # regardless of whether sub_domain is set, and even if the 3X-UI
         # installer sets an IP cert on future versions
@@ -192,7 +193,6 @@ main() {
             xui_db_set "subPort" "$sub_port"
             xui_db_set "subPath" "/$sub_path/"
             xui_db_set "subDomain" "$sub_domain"
-            xui_db_set "subListen" "127.0.0.1"
             xui_db_set "subURI" "https://${sub_domain}/${sub_path}/"
             # Clear certs set by 3X-UI installer — Caddy handles TLS termination,
             # subscription must listen on plain HTTP for Caddy reverse proxy to work

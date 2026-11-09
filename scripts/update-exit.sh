@@ -1,6 +1,6 @@
 #!/bin/bash
 # Update exit server configuration from latest codebase
-# Run: ./setup.sh update-exit [--upgrade] [--enable-warp|--disable-warp]
+# Run: ./setup.sh update-exit [--upgrade] [--enable-warp|--disable-warp] [--keep-3xui]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -13,16 +13,16 @@ source "$SCRIPT_DIR/lib/verify.sh"
 source "$SCRIPT_DIR/lib/caddy.sh"
 
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
-XUI_DB="/etc/x-ui/x-ui.db"
 
 main() {
-    local upgrade=false skip_ssh=false enable_warp=false disable_warp=false
+    local upgrade=false skip_ssh=false enable_warp=false disable_warp=false keep_3xui=false
     for arg in "$@"; do
         case "$arg" in
             --upgrade) upgrade=true ;;
             --skip-ssh) skip_ssh=true ;;
             --enable-warp) enable_warp=true ;;
             --disable-warp) disable_warp=true ;;
+            --keep-3xui) keep_3xui=true ;;
         esac
     done
 
@@ -142,10 +142,21 @@ main() {
     log_info "  DNS mode: $dns_mode"
     log_info "  WARP:     $warp_enabled"
 
-    # Read panel port from 3X-UI DB (for UFW and verification)
-    local panel_port=""
-    if [[ -f "$XUI_DB" ]]; then
-        panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
+    local ssh_port
+    ssh_port=$(detect_ssh_port)
+
+    # --- Step 2a: Remove the decorative 3X-UI panel (issue #40) ---
+    # Exit traffic never touched it (standalone xray.service + hysteria); it only
+    # exposed a plain-HTTP admin port. Before Step 4 so --upgrade can't reinstall it.
+    # --keep-3xui leaves the panel exactly as it is (not upgraded, not managed by
+    # these scripts any more, its UFW rule stays) — a plain update-exit removes it later.
+    if xui_panel_installed; then
+        if [[ "$keep_3xui" == true ]]; then
+            log_warn "3X-UI panel kept (--keep-3xui): it is no longer upgraded or checked by these scripts."
+            log_warn "  Its port stays open in UFW. Remove it with a plain './setup.sh update-exit'."
+        else
+            purge_3xui_panel "$ssh_port"
+        fi
     fi
 
     # --- Step 2b: Heal Caddy socket perms (issue #42) ---
@@ -173,15 +184,6 @@ main() {
         version=$(xray version 2>/dev/null | head -1 || true)
         log_ok "XRAY upgraded: $version"
 
-        if command -v x-ui &> /dev/null; then
-            log_info "Upgrading 3X-UI..."
-            # Pinned version + non-interactive flags: see run_3xui_installer in
-            # scripts/lib/3xui.sh. Exit panel is decorative (real exit xray is
-            # standalone) — no API token / client migration needed here.
-            run_3xui_installer
-            log_ok "3X-UI upgraded to ${XUI_VERSION}"
-        fi
-
         if [[ "$is_selfsteal" == true ]]; then
             log_info "Upgrading Caddy..."
             apt_update_retry
@@ -189,21 +191,6 @@ main() {
             log_ok "Caddy upgraded"
         fi
     fi
-
-    # --- Step 4b: Revoke 3X-UI installer API tokens ---
-    # install.sh mints an admin token ("install"/"cli-fallback") and prints it into
-    # this log; the exit panel needs no token at all. Needs the x-ui stop/start window
-    # (direct DB write). Runs after --upgrade, and on plain updates only when such a
-    # token is actually there — no needless panel restart. The restart also brings the
-    # panel up under the unit + sandbox drop-in the installer just wrote.
-    if command -v x-ui &> /dev/null && [[ -f "$XUI_DB" ]] && \
-       { [[ "$upgrade" == true ]] || [[ "$(count_installer_api_tokens)" -gt 0 ]]; }; then
-        x-ui stop
-        revoke_installer_api_tokens
-        systemctl daemon-reload
-        systemctl restart x-ui
-    fi
-    rm -f "$XUI_INSTALL_RESULT"
 
     # --- Step 5: Update XRAY config ---
     log_info "=== Updating XRAY Config ==="
@@ -239,7 +226,7 @@ main() {
         log_ok "WARP daemon stopped (package preserved — use uninstall --purge-warp to remove)"
     fi
 
-    # 3X-UI installer leaves an acme.sh cron behind that conflicts with Caddy on :80
+    # The 3X-UI installer of older setups left an acme.sh cron behind that conflicts with Caddy on :80
     if [[ "$is_selfsteal" == true ]]; then
         disable_acme_cron
     fi
@@ -282,16 +269,11 @@ main() {
 
     # --- Step 6: Security ---
     log_info "=== Security ==="
-    local ssh_port
-    ssh_port=$(detect_ssh_port)
     log_info "Current SSH port: $ssh_port"
 
     local security_args=()
     [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
     security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
-    if [[ -n "$panel_port" ]]; then
-        security_args+=("$panel_port:3X-UI Panel")
-    fi
     if [[ "$is_selfsteal" == true ]]; then
         security_args+=(80:Caddy-ACME)
     fi
@@ -374,7 +356,7 @@ EOF
 }
 
 LOG_FILE="/var/log/vpn-setup-$(basename "$0" .sh)-$(date +%Y%m%d-%H%M%S).log"
-# Root-only: the log carries installer output (panel credentials, API token).
+# Root-only, same as the other setup/update logs.
 install -m 0600 /dev/null "$LOG_FILE"
 main "$@" 2>&1 | tee "$LOG_FILE"
 exit "${PIPESTATUS[0]}"

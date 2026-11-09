@@ -94,8 +94,9 @@ main() {
     log_info "  API port: $api_port"
 
     # Read panel/subscription ports from DB
-    local panel_port sub_port sub_enable
+    local panel_port sub_port sub_enable sub_port_raw
     panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';") || true
+    sub_port_raw=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subPort';") || true
     sub_enable=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subEnable';") || true
     sub_port=""
     if [[ "$sub_enable" == "true" ]]; then
@@ -188,6 +189,13 @@ main() {
     # Installer tokens: relays set up before this fix still carry "install", and an
     # --upgrade that reset default credentials mints "cli-fallback".
     revoke_installer_api_tokens
+
+    # SelfSteal: panel + subscription server on loopback only — Caddy is the only
+    # way in (issue #40). Relays set up before v1.13.0 listened on 0.0.0.0.
+    if [[ "$is_selfsteal" == true ]]; then
+        xui_bind_loopback
+        log_ok "3X-UI panel/subscription bound to 127.0.0.1 (access via Caddy domains)"
+    fi
 
     # Patch inbound sniffing to add routeOnly (idempotent — jq sets the field)
     local current_sniffing patched_sniffing
@@ -494,13 +502,23 @@ SVCEOF
 
     local security_args=()
     [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
-    security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY "$panel_port:3X-UI Panel")
+    security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
     if [[ "$is_selfsteal" == true ]]; then
+        # Panel/subscription go through Caddy only — not opened, and the rules older
+        # versions added are removed below (issue #40).
         security_args+=(80:Caddy-ACME)
-    elif [[ -n "$sub_port" ]]; then
-        security_args+=("$sub_port:Subscription")
+    else
+        if [[ -n "$panel_port" ]]; then
+            security_args+=("$panel_port:3X-UI Panel")
+        fi
+        if [[ -n "$sub_port" ]]; then
+            security_args+=("$sub_port:Subscription")
+        fi
     fi
     setup_security "${security_args[@]}"
+    if [[ "$is_selfsteal" == true ]]; then
+        close_relay_panel_ports "$panel_port" "$sub_port_raw"
+    fi
 
     # Install vpn CLI symlink (issue #23) — идемпотентно для существующих серверов
     install_vpn_cli_symlink "$SCRIPT_DIR/vpn"
