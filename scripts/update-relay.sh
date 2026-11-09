@@ -346,6 +346,7 @@ main() {
     log_ok "3X-UI restarted with updated template (xray bound :443)"
     # Past the only rollback point — the plaintext token copy is no longer needed
     rm -f "${backup_path}.api-token"
+    prune_backups "${XUI_DB}.bak." 5
 
     # Re-assert the CDN client set via API. The upgrade seeder migrated relay clients
     # into the normalized tables; the CDN "-cdn" variants are ours to reconcile.
