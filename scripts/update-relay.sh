@@ -142,23 +142,15 @@ main() {
     # --- Step 4: Upgrade 3X-UI (optional) ---
     if [[ "$upgrade" == true ]]; then
         log_info "=== Upgrading 3X-UI ==="
-        # Pinned to v3.1.0 — see scripts/lib/3xui.sh:install_3xui. First start of
-        # v3.1.0 runs the seeder, migrating existing JSON clients into the normalized
-        # clients/client_inbounds tables (subscriptions survive upgrade).
-        # On an already-configured panel install.sh skips the DB/port prompts; the
-        # only question is SSL (and, when SSL=4 is picked, a bind-to-127.0.0.1 y/N).
-        # So the SSL answer (4 = Skip) must be FIRST here — unlike the fresh-install
-        # feed in install_3xui, which has DB+port prompts ahead of it. A leading blank
-        # would land on the SSL prompt and default it to option 2 (LE IP cert, acme on
-        # :80, collides with Caddy).
-        {
-            printf '4\n'  # SSL method         → Skip SSL
-            printf '\n'   # Bind to 127.0.0.1? → N (all interfaces)
-            printf '\n%.0s' {1..98}  # any further/unexpected prompts: accept defaults
-        } > /tmp/xui-answers
-        bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
-        rm -f /tmp/xui-answers
-        log_ok "3X-UI upgraded to v3.1.0 (seeder migrated existing clients)"
+        # Pinned version + non-interactive flags: see run_3xui_installer in
+        # scripts/lib/3xui.sh. The installer ends with `x-ui migrate` and starts the
+        # panel, so the seeders run here: v2.x JSON clients move into the normalized
+        # clients/client_inbounds tables, and (crossing v3.3.1) existing api_tokens
+        # rows are rewritten as SHA-256. The bootstrap_api_token call in Step 5
+        # below then re-checks our token against the hashed format and re-issues it
+        # if it doesn't match — that is what repairs relays upgraded from v3.1.0.
+        run_3xui_installer
+        log_ok "3X-UI upgraded to ${XUI_VERSION} (seeders migrated existing clients/tokens)"
 
         if [[ "$is_selfsteal" == true ]]; then
             log_info "Upgrading Caddy..."
@@ -180,7 +172,9 @@ main() {
     x-ui stop
 
     # Bootstrap the REST API token while x-ui is stopped (loads fresh on the start
-    # below; no later restart to flush it). Idempotent — reuses an existing valid token.
+    # below; no later restart to flush it). Idempotent — reuses an existing valid token,
+    # re-issues it if the row no longer matches (e.g. plaintext row on a v3.3.1+ panel
+    # that hashes tokens — the post-`--upgrade` repair path).
     bootstrap_api_token
 
     # Patch inbound sniffing to add routeOnly (idempotent — jq sets the field)
