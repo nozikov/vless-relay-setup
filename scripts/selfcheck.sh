@@ -131,7 +131,7 @@ run_selfcheck_relay() {
     local domain=""
     if [[ -f "$XUI_DB" ]]; then
         domain=$(sqlite3 "$XUI_DB" \
-            "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" 2>/dev/null | \
+            <<< "SELECT stream_settings FROM inbounds WHERE tag='inbound-443';" 2>/dev/null | \
             jq -r '.realitySettings.serverNames[0] // empty' 2>/dev/null) || true
         if [[ -n "$domain" && "$domain" != "null" ]]; then
             rc=0; check_cert_expiry "$domain" || rc=$?

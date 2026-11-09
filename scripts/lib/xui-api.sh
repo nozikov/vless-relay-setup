@@ -12,9 +12,9 @@ XUI_API_TOKEN_FILE="${XUI_API_TOKEN_FILE:-/etc/vpn-cli/api-token}"
 # (stored with leading+trailing slash) and HTTPS if a web cert is configured.
 xui_api_base() {
     local port path scheme cert
-    port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
-    path=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webBasePath';" 2>/dev/null) || true
-    cert=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webCertFile';" 2>/dev/null) || true
+    port=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
+    path=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='webBasePath';" 2>/dev/null) || true
+    cert=$(sqlite3 "$XUI_DB" <<< "SELECT value FROM settings WHERE key='webCertFile';" 2>/dev/null) || true
     [[ -z "$port" ]] && port=2053
     [[ -z "$path" ]] && path="/"
     # normalize to exactly one leading and one trailing slash
@@ -41,7 +41,7 @@ xui_api_token() {
 xui_api_tokens_hashed() {
     local n
     n=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM history_of_seeders WHERE seeder_name='ApiTokensHash';" 2>/dev/null) || n=0
+        <<< "SELECT COUNT(*) FROM history_of_seeders WHERE seeder_name='ApiTokensHash';" 2>/dev/null) || n=0
     [[ "${n:-0}" -gt 0 ]]
 }
 
@@ -49,7 +49,7 @@ xui_api_tokens_hashed() {
 xui_api_tokens_has_column() {
     local col="$1" n
     n=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM pragma_table_info('api_tokens') WHERE name='${col//\'/\'\'}';" 2>/dev/null) || n=0
+        <<< "SELECT COUNT(*) FROM pragma_table_info('api_tokens') WHERE name='${col//\'/\'\'}';" 2>/dev/null) || n=0
     [[ "${n:-0}" -gt 0 ]]
 }
 
@@ -94,7 +94,7 @@ bootstrap_api_token() {
             db_token="$token"
             [[ "$hashed" == true ]] && db_token=$(xui_sha256_hex "$token")
             existing=$(sqlite3 "$XUI_DB" \
-                "SELECT COUNT(*) FROM api_tokens WHERE name='vpn-cli' AND token='${db_token//\'/\'\'}' AND enabled=1${where_extra};" \
+                <<< "SELECT COUNT(*) FROM api_tokens WHERE name='vpn-cli' AND token='${db_token//\'/\'\'}' AND enabled=1${where_extra};" \
                 2>/dev/null) || existing=0
             if [[ "$existing" == "1" ]]; then
                 log_info "Reusing existing API token ($XUI_API_TOKEN_FILE)"
@@ -106,10 +106,10 @@ bootstrap_api_token() {
     token=$(openssl rand -hex 24)
     db_token="$token"
     [[ "$hashed" == true ]] && db_token=$(xui_sha256_hex "$token")
-    sqlite3 "$XUI_DB" "DELETE FROM api_tokens WHERE name='vpn-cli';"
+    sqlite3 "$XUI_DB" <<< "DELETE FROM api_tokens WHERE name='vpn-cli';"
     # created_at in epoch millis (what v3.1.0 expects); v3.11 normalizes millis to
     # seconds on start (normalizeApiTokenCreatedAtSeconds), so one value fits both.
-    sqlite3 "$XUI_DB" "INSERT INTO api_tokens (name, token, enabled, created_at${extra_cols}) \
+    sqlite3 "$XUI_DB" <<< "INSERT INTO api_tokens (name, token, enabled, created_at${extra_cols}) \
         VALUES ('vpn-cli', '${db_token}', 1, strftime('%s','now')*1000${extra_vals});"
     mkdir -p "$(dirname "$XUI_API_TOKEN_FILE")"
     (umask 077 && printf '%s' "$token" > "$XUI_API_TOKEN_FILE")
@@ -185,14 +185,14 @@ xui_api_add_inbound() {
 xui_api_inbound_id() {
     local tag="$1" resp
     resp=$(xui_api_request GET "inbounds/list") || return 1
-    printf '%s' "$resp" | jq -r --arg t "$tag" 'first(.obj[]? | select(.tag==$t) | .id) // empty'
+    printf '%s' "$resp" | jq -r --rawfile t <(printf '%s' "$tag") 'first(.obj[]? | select(.tag==$t) | .id) // empty'
 }
 
 # Add a client (client JSON object) to the inbound with the given numeric id.
 xui_api_add_client() {
     local inbound_id="$1" client_json="$2" body
-    body=$(jq -n -c --argjson client "$client_json" --argjson iid "$inbound_id" \
-        '{client: $client, inboundIds: [$iid]}')
+    body=$(jq -n -c --rawfile client <(printf '%s' "$client_json") --argjson iid "$inbound_id" \
+        '{client: ($client | fromjson), inboundIds: [$iid]}')
     xui_api_request POST "clients/add" "$body" >/dev/null
 }
 
