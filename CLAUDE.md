@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Is
 
-Two-server VPN deployment automation: relay (entry node) + exit (exit node) using VLESS + XTLS-Reality (XHTTP on relay client-facing inbound, RAW + xtls-rprx-vision on relay→exit and Direct Exit), managed via 3X-UI panels. Pure Bash scripts, no frameworks.
+Two-server VPN deployment automation: relay (entry node) + exit (exit node) using VLESS + XTLS-Reality (XHTTP on relay client-facing inbound, RAW + xtls-rprx-vision on relay→exit and Direct Exit), relay managed via a 3X-UI panel, exit runs standalone XRAY (no panel since v1.13.0). Pure Bash scripts, no frameworks.
 
 ## Architecture
 
@@ -47,8 +47,8 @@ Hysteria 2 (optional, requires SelfSteal):
   Link added to subscription via sub-proxy HYSTERIA_LINK env var
 ```
 
-**Exit server**: XRAY runs as systemd service, config in `/usr/local/etc/xray/config.json`.
-**Relay server**: 3X-UI manages its own XRAY process, config stored in SQLite at `/etc/x-ui/x-ui.db`.
+**Exit server**: XRAY runs as systemd service, config in `/usr/local/etc/xray/config.json`. No 3X-UI (since v1.13.0, issue #40) — older setups installed a decorative panel there (no inbounds, its own xray copy); `update-exit` removes it (see "Exit: no 3X-UI" below).
+**Relay server**: 3X-UI manages its own XRAY process, config stored in SQLite at `/etc/x-ui/x-ui.db`. In SelfSteal mode the panel and the subscription server listen on 127.0.0.1 only and are reached through Caddy (panel/sub domains); their ports are not opened in UFW.
 
 Setup order is always exit first, then relay (relay needs exit server's keys/UUID).
 
@@ -75,7 +75,7 @@ A client subscription emits up to 5 channels. All share one UUID. Generation:
 - `scripts/setup.sh` — router: delegates to setup/update/uninstall scripts. Passes extra args (`--force`, `--upgrade`)
 - `scripts/setup-exit.sh` — exit server orchestration. Refuses to run if already configured (use `--force` to override)
 - `scripts/setup-relay.sh` — relay server orchestration (complex, DB-driven). Same `--force` guard
-- `scripts/update-exit.sh` — update exit config from latest codebase, preserving keys/UUID. `--upgrade` to update binaries
+- `scripts/update-exit.sh` — update exit config from latest codebase, preserving keys/UUID. `--upgrade` to update binaries (XRAY, Caddy, Hysteria). Removes a leftover 3X-UI panel; `--keep-3xui` skips that
 - `scripts/update-relay.sh` — update relay template + patch inbound sniffing, preserving clients. `--upgrade` to update 3X-UI
 - `scripts/uninstall.sh` — teardown with `--force` and `--purge-certs` flags
 
@@ -88,7 +88,7 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 - `caddy.sh` — Caddy installation, Caddyfile generation, static site content, systemd dependency, sub-proxy setup, uninstall (SelfSteal mode only)
 - `reality.sh` — Reality key generation, destination site selection
 - `xray.sh` — XRAY installation, exit server JSON config (including optional CDN XHTTP inbound with padding)
-- `3xui.sh` — 3X-UI install/configure, SQLite operations, SSL certs, inbound/template management
+- `3xui.sh` — 3X-UI install/configure (relay), SQLite operations, SSL certs, inbound/template management, `purge_3xui_panel` (exit-side legacy teardown), `xui_bind_loopback` / `close_relay_panel_ports` (SelfSteal relay)
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
 - `hysteria.sh` — Hysteria 2 installation, YAML config generation, cert copy from Caddy, restart, uninstall
 - `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token; SHA-256 of it in `api_tokens` on v3.3.1+, plaintext bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write. Token and request body never go on curl's argv (visible in `ps`/`/proc/*/cmdline`): the `Authorization` header is fed as curl config on stdin (`-K -` + here-string), the JSON body via `--data-binary @<(printf …)`. Don't add a second stdin consumer to that curl.
@@ -112,7 +112,7 @@ x-ui start         # Load fresh state from DB
 
 **API token storage (v3.3.1+, pinned v3.11.0):** `api_tokens.token` holds SHA-256(plaintext) — the panel hashes the presented Bearer and compares. `/etc/vpn-cli/api-token` keeps the plaintext. `bootstrap_api_token` decides plaintext vs hash by the `ApiTokensHash` row in `history_of_seeders` and sets `scope='admin'`/`expires_at=0` only if those columns exist, so it works on both v3.1.0 and v3.11.0 DBs. It runs on every update-relay (after `--upgrade` too) and re-issues the token if the row doesn't match — this is what repairs relays upgraded from v3.1.0.
 
-**Installer tokens (both roles):** install.sh v3.11 mints admin tokens `install` (fresh DB) / `cli-fallback` (re-run that resets default creds), prints them to stdout (= our log) and writes `/etc/x-ui/install-result.env`. `revoke_installer_api_tokens` (`3xui.sh`, DB-write → inside the stop/start window) deletes exactly those names; called from `configure_3xui` (setup, both roles), update-relay's Step 5 window, and update-exit Step 4b (after `--upgrade`, or whenever such a token exists; restarts x-ui). `run_3xui_installer` deletes `install-result.env` right after the run.
+**Installer tokens (relay):** install.sh v3.11 mints admin tokens `install` (fresh DB) / `cli-fallback` (re-run that resets default creds), prints them to stdout (= our log) and writes `/etc/x-ui/install-result.env`. `revoke_installer_api_tokens` (`3xui.sh`, DB-write → inside the stop/start window) deletes exactly those names; called from `configure_3xui` (setup-relay) and update-relay's Step 5 window. `run_3xui_installer` deletes `install-result.env` right after the run. (The exit-side Step 4b of v1.12 is gone together with the exit panel.)
 
 ### 3X-UI Inbound Normalization
 
@@ -145,6 +145,18 @@ Exit's main inbound and relay's `proxy-exit` outbound must be on the same transp
 `update-exit` migrates the exit inbound; `update-relay` migrates the relay outbound and regenerates sub-proxy URLs (Direct Exit + CDN asymmetric downloadSettings switch to `type=raw&flow=xtls-rprx-vision`). Update order: **exit first, then relay**. ~30s window of broken connectivity for relay-routed clients between the two updates. Direct Exit URLs cached in client subscriptions also break until subscription refresh.
 
 Idempotency: re-running update-* on an already-migrated config is a no-op (jq detection on `xhttpSettings` field). Relay client-facing inbound stays XHTTP. CDN packet-up XHTTP inbound (localhost) stays XHTTP — Cloudflare requires HTTP. Hysteria 2 unaffected.
+
+### Exit: no 3X-UI (v1.13.0+, issue #40)
+
+The exit panel never carried traffic (all channels terminate on standalone `xray.service` or `hysteria-server`) and, with the installer on SSL none, served a plain-HTTP admin login on a public port. Fresh `setup-exit` doesn't install it (no panel port in UFW, no panel URL/credentials in the banner or `exit-server-info.txt`); a `--force` re-run on an old box removes a leftover one.
+
+`update-exit` (Step 2a, before `--upgrade`) calls `purge_3xui_panel` when `xui_panel_installed` — manual teardown, **not** `x-ui uninstall` (interactive, "xray will also uninstalled", deletes itself): read `webPort`, `systemctl stop/disable x-ui`, back up the DB (`sqlite3 .backup`, folds in the WAL) to `/root/x-ui-exit-backup-<ts>.db` (0600), remove the unit + `x-ui.service.d` + wants-link, `/usr/local/x-ui`, `/etc/x-ui`, `/var/log/x-ui`, `/usr/bin/x-ui`, `/etc/default/x-ui`, the IP Limit fail2ban files `3x-ipl*.conf` if present; close UFW `webPort/tcp` plus any rule commented `3X-UI Panel` (never 80/443/SSH); then confirm xray/caddy/hysteria are still active. Never touches `/usr/local/bin/xray`, `/usr/local/etc/xray`, `/var/log/xray` — the panel runs its own xray from `/usr/local/x-ui/bin`. Idempotent (no panel → no-op, no new backup).
+
+`update-exit --keep-3xui` leaves the panel exactly as is: not upgraded, not checked by selfcheck, its UFW rule stays (setup_ufw only adds rules). A later plain `update-exit` removes it. `uninstall.sh` still removes a panel if one is there (both roles).
+
+### Relay SelfSteal: panel on loopback (v1.13.0+, issue #40)
+
+`xui_bind_loopback` sets `webListen` + `subListen` = `127.0.0.1` (DB-write → inside the stop/start window): setup-relay's SelfSteal window and update-relay's Step 5 window (SelfSteal only). Caddy (`reverse_proxy 127.0.0.1:<port>`), sub-proxy (`SUB_UPSTREAM=http://127.0.0.1:<sub_port>`) and `xui-api.sh` (`http://127.0.0.1:webPort`) already use loopback; `vpn` builds links from `subURI`. update-relay in SelfSteal no longer passes `panel_port`/`sub_port` to `setup_security` and runs `close_relay_panel_ports` (`ufw delete allow PORT/tcp` for webPort and subPort) — relays set up before v1.13.0 had `panel_port` re-opened on every update. Non-SelfSteal relay: unchanged (panel + sub ports open, cert from `issue_domain_cert`).
 
 ### Update Scripts
 
@@ -238,7 +250,7 @@ xray-core 26.10+ (3X-UI v3.11 ships 26.10.x): a freedom outbound blocks private 
 
 ### Logging
 
-All setup/update scripts wrap `main` with `tee` to `/var/log/vpn-setup-<script>-<timestamp>.log`. Exit code preserved via `PIPESTATUS[0]`. The log is pre-created `install -m 0600 /dev/null "$LOG_FILE"` before `tee` (all four scripts) — it captures 3X-UI installer output with credentials.
+All setup/update scripts wrap `main` with `tee` to `/var/log/vpn-setup-<script>-<timestamp>.log`. Exit code preserved via `PIPESTATUS[0]`. The log is pre-created `install -m 0600 /dev/null "$LOG_FILE"` before `tee` (all four scripts) — on relay it captures 3X-UI installer output with credentials.
 
 ### apt
 
@@ -249,7 +261,7 @@ Every `apt-get update` in `scripts/` goes through `apt_update_retry` (common.sh)
 `scripts/selfcheck.sh` — auto-detect role (exit/relay по `/usr/local/etc/xray/config.json` vs `/etc/x-ui/x-ui.db`) + extended verify. Запускается auto в конце setup-* / update-* (заменил собой `verify_exit_server` / `verify_relay_server` callsites). Manual: `./setup.sh selfcheck`. Exit code 1 если есть FAIL.
 
 Три блока проверок:
-1. **Local services** (через `lib/verify.sh`): xray/x-ui/caddy/hysteria/warp-svc/sub-proxy running, ports listening (TCP + Hysteria UDP; `verify_port_listening` использует фильтр `ss -H "sport = :PORT"`, не `ss | grep -q` — SIGPIPE под pipefail давал ложный FAIL). Плюс `check_xui_version`: 3X-UI старше `XUI_VERSION` → WARN с подсказкой `update-exit|update-relay --upgrade`
+1. **Local services** (через `lib/verify.sh`): xray (exit) / x-ui (relay) / caddy/hysteria/warp-svc/sub-proxy running, ports listening (TCP + Hysteria UDP; `verify_port_listening` использует фильтр `ss -H "sport = :PORT"`, не `ss | grep -q` — SIGPIPE под pipefail давал ложный FAIL). Плюс `check_xui_version` (только relay): 3X-UI старше `XUI_VERSION` → WARN с подсказкой `update-relay --upgrade`. На exit x-ui не проверяется (с v1.13.0 его там нет)
 2. **System resources** (через `lib/selfcheck.sh`): cert expiry (<14 days = WARN, <7 = FAIL), disk >10% free, RAM >100MB free
 3. **Outside probes**: curl на собственный external IP (hairpin NAT) → должен вернуть selfsteal HTML; CDN external probe через Cloudflare если CDN_DOMAIN настроен. Hairpin не везде работает — graceful degrade на WARN, не FAIL.
 

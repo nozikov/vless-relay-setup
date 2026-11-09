@@ -131,7 +131,7 @@ Split routing requires no additional server configuration — it is a client-sid
 - **Multi-tier CDN Fallback** — backup routes through Cloudflare with asymmetric mode
 - **Adaptive connection protection** — packet padding and connection multiplexing
 - **Hysteria 2 (UDP)** — fallback channel with Salamander obfuscation and port hopping
-- **3X-UI panel** — web interface for user management, traffic limits, and monitoring
+- **3X-UI panel** (on the relay) — web interface for user management, traffic limits, and monitoring
 - **Subscriptions** — automatic configuration updates on client devices
 - **Split Routing** — region-based traffic routing: local services go direct, everything else through VPN. Ready-made Shadowrocket configs (`?conf=ru`)
 - **SSH hardening + fail2ban + UFW** — automated server security configuration
@@ -197,10 +197,6 @@ sudo ./scripts/setup.sh exit
 The script will prompt for settings:
 
 ```
-3X-UI panel port [34821]:              ← Enter for random port
-3X-UI panel secret path [a8Kx...]:     ← Enter for random path
-Admin username [admin]:                ← admin username
-Admin password:                        ← password (hidden)
 Custom SSH port (Enter for default 22): ← SSH port
 Domain for SelfSteal SNI (Enter to skip): ← domain or Enter
 ```
@@ -225,6 +221,8 @@ The script outputs connection parameters at the end — **save them** for relay 
 ```
 
 These values are also saved to `/root/exit-server-info.txt`.
+
+There is no management panel on the exit: it runs only XRAY (plus optional Caddy/Hysteria); users are managed on the relay.
 
 ### Step 2. Relay Server
 
@@ -257,7 +255,7 @@ Without SelfSteal — the script will only ask for a subscription domain (option
 
 ### Step 3. Add Users
 
-Open the relay panel: `https://<relay-ip>:<port>/<path>/`
+Open the relay panel: in SelfSteal mode — `https://<panel-domain>/<path>/` (the panel listens on 127.0.0.1 only and is not reachable via `IP:port`), without SelfSteal — `https://<relay-ip>:<port>/<path>/`. The URL, username and password are printed at the end of the setup.
 
 1. **Inbounds** → find your inbound → **+ Add Client**
 2. Set email (name), traffic limits, and expiration
@@ -368,7 +366,7 @@ Keys, UUIDs, clients, and statistics are **preserved**. Only the configuration t
 
 With CDN Fallback, `update-relay` automatically syncs the CDN link with the current exit UUID. If the exit UUID changes — just run `update-relay`, and subscriptions will update. Users only need to refresh the subscription in their app.
 
-To update binaries (XRAY, 3X-UI, Caddy), add `--upgrade`:
+To update binaries (exit: XRAY, Caddy, Hysteria; relay: 3X-UI, Caddy), add `--upgrade`:
 
 ```bash
 sudo ./scripts/setup.sh update-exit --upgrade
@@ -378,6 +376,8 @@ sudo ./scripts/setup.sh update-relay --upgrade
 > **Upgrading to v1.11.0 (from ≤ v1.10.x):** in v1.11.0 the relay is managed through the 3X-UI v3.x REST API, so the panel binary is upgraded from v2.8.11 to v3.1.0. This transition **requires** the `--upgrade` flag — without it the new code can't reach the v3 API and the update breaks. Existing clients migrate automatically (3X-UI's seeder moves them into the normalized tables). **Back up** `/etc/x-ui/x-ui.db` **before upgrading.** Order is unchanged: exit first, then relay.
 
 > **Upgrading to v1.12.0:** the 3X-UI panel is pinned to v3.11.0, which closes the published advisories affecting v3.1.0. The panel is upgraded only with the `--upgrade` flag — run `update-exit --upgrade`, then `update-relay --upgrade`. Without the flag everything keeps working on the old panel and selfcheck shows a warning. On Ubuntu 22.10+ / 24.04 the update switches SSH from `ssh.socket` to `ssh.service` once (the current session stays up). **Back up** `/etc/x-ui/x-ui.db` **before upgrading.**
+
+> **Upgrading to v1.13.0:** the 3X-UI panel is removed from the exit — it managed nothing (traffic goes through a separate XRAY) and only kept an admin port open. `update-exit` removes it automatically: the database is saved to `/root/x-ui-exit-backup-<date>.db`, the UFW rule for the panel port is closed, XRAY/Caddy/Hysteria keep running. To keep the panel as is: `update-exit --keep-3xui` (it is no longer upgraded or checked by the scripts). On a SelfSteal relay `update-relay` binds the panel and the subscription server to 127.0.0.1 and closes their ports in UFW — open the panel only via its domain (`https://<panel-domain>/<path>/`). A relay without SelfSteal is unchanged.
 
 ### Uninstalling
 
@@ -407,7 +407,8 @@ x-ui log
 |------|---------|-------------|
 | `--force` | setup, uninstall | Skip guard check / confirmation |
 | `--skip-ssh` | setup, update | Don't modify SSH configuration |
-| `--upgrade` | update | Update binaries (XRAY, 3X-UI, Caddy) |
+| `--upgrade` | update | Update binaries (exit: XRAY, Caddy, Hysteria; relay: 3X-UI, Caddy) |
+| `--keep-3xui` | update-exit | Don't remove a leftover 3X-UI panel from the exit |
 | `--purge-certs` | uninstall | Remove SSL certificates and acme.sh |
 
 ## Security
@@ -416,8 +417,8 @@ x-ui log
 |-----------|-------------|
 | SSH | Key-only authentication, passwords disabled, optional port change |
 | fail2ban | IP ban after 3 failed SSH attempts for 1 hour |
-| UFW | Only required ports open (SSH, 443, panel) |
-| 3X-UI | Random port + secret URL path |
+| UFW | Only required ports open (SSH, 443; the panel port only on a relay without SelfSteal) |
+| 3X-UI | Relay only. Random port + secret URL path; in SelfSteal it listens on 127.0.0.1 and is reachable only via the panel domain (Caddy) |
 | Reality | TLS 1.3 with SNI masking to a legitimate domain |
 | SelfSteal | Real website on your domain — full SNI/IP/certificate consistency |
 | Routing | Private subnet access blocked (RFC 1918) through the tunnel |
