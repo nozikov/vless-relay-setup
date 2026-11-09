@@ -180,6 +180,11 @@ main() {
             log_ok "Hysteria 2 removed"
         fi
     fi
+    # sub-proxy: its env file holds links with the exit UUID — remove it even if
+    # Caddy is already gone (uninstall_caddy calls it too; idempotent)
+    if type uninstall_sub_proxy &>/dev/null && [[ -f /etc/systemd/system/sub-proxy.service || -d /etc/sub-proxy ]]; then
+        uninstall_sub_proxy
+    fi
     # Caddy (SelfSteal)
     if type uninstall_caddy &>/dev/null; then
         if systemctl is-active caddy &>/dev/null || dpkg -l caddy &>/dev/null 2>&1; then
