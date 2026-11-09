@@ -30,7 +30,7 @@ confirm_uninstall() {
 
     echo ""
     log_warn "This will remove ALL VPN components from this server:"
-    echo "  - 3X-UI panel and database"
+    echo "  - 3X-UI panel and database (relay; legacy exit installs)"
     echo "  - XRAY core"
     echo "  - fail2ban"
     echo "  - UFW firewall rules"

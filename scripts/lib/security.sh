@@ -348,6 +348,22 @@ prune_stale_ssh_ufw_rules() {
     done
 }
 
+# Remove the UFW "allow PORT/tcp" rule (v4 + v6) if one was added — the comment
+# is not part of the match, so this drops what setup_ufw created under any label.
+# Quiet no-op without ufw or without such a rule. $2 = label for the log line.
+ufw_close_tcp_port() {
+    local port="$1" label="${2:-}" added
+    [[ "$port" =~ ^[0-9]+$ ]] || return 0
+    command -v ufw &> /dev/null || return 0
+    # Captured first, then matched: `ufw show added | grep -q` is a SIGPIPE trap
+    # under pipefail.
+    added=$(ufw show added 2>/dev/null) || true
+    if grep -qE "^ufw allow ${port}/tcp( |\$)" <<< "$added"; then
+        ufw delete allow "${port}/tcp" > /dev/null 2>&1 || true
+        log_ok "UFW: closed ${port}/tcp${label:+ ($label)}"
+    fi
+}
+
 setup_fail2ban() {
     # ssh_port may be a comma list ("2222,22" while UFW keeps an SSH fallback)
     local ssh_port="${1:-22}"

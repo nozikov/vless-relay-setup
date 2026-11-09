@@ -45,17 +45,6 @@ main() {
     # --- Step 1: Gather configuration ---
     log_info "=== Configuration ==="
 
-    local panel_port panel_path admin_user admin_pass
-    panel_port=$(generate_random_port)
-    panel_path=$(generate_random_path)
-    log_info "Panel port: $panel_port (random)"
-    log_info "Panel path: $panel_path (random)"
-
-    admin_user="${ADMIN_USER:-admin}"
-    admin_pass="${ADMIN_PASS:-$(generate_admin_pass)}"
-    log_info "Admin user: $admin_user (auto, override via ADMIN_USER env)"
-    log_info "Admin pass: auto-generated, shown in the final summary (override via ADMIN_PASS env)"
-
     local ssh_port=22
     prompt_input "Custom SSH port (Enter for default 22)" ssh_port "22"
     if ! [[ "$ssh_port" =~ ^[0-9]+$ ]] || [[ "$ssh_port" -lt 1 || "$ssh_port" -gt 65535 ]]; then
@@ -138,7 +127,7 @@ main() {
     local cdn_path="" cdn_port=""
     if [[ -n "$cdn_domain" ]]; then
         cdn_path=$(generate_random_path)
-        cdn_port=$(generate_random_port "$panel_port")
+        cdn_port=$(generate_random_port)
         log_ok "Generated CDN path and port"
     fi
 
@@ -153,11 +142,9 @@ main() {
         export REALITY_SERVER_NAME="$selfsteal_domain"
         generate_caddyfile "$selfsteal_domain" "" "" "" "" \
             "$cdn_domain" "$cdn_path" "$cdn_port"
-        # Caddy is NOT started yet — it starts after the 3X-UI install (historically
-        # the installer's own ACME needed :80; with XUI_SSL_MODE=none it no longer
-        # does, the order is just kept).
-        # systemd dependency is also deferred: Wants=caddy.service would auto-start
-        # Caddy when XRAY restarts, defeating the purpose of delaying.
+        # Caddy is started after restart_xray below, then the systemd dependency
+        # is added (Wants=caddy.service would otherwise auto-start it on the XRAY
+        # restart, before the Caddyfile/socket setup is finished).
 
         configure_xray_exit 443 "$exit_uuid" "$REALITY_PRIVATE_KEY" \
             "$REALITY_SHORT_ID" "$REALITY_DEST" "$REALITY_SERVER_NAME" \
@@ -173,12 +160,14 @@ main() {
 
     restart_xray
 
-    # --- Step 4: Install 3X-UI ---
-    log_info "=== 3X-UI Setup ==="
-    install_3xui
-    configure_3xui "$panel_port" "$panel_path" "$admin_user" "$admin_pass"
+    # No 3X-UI on exit since v1.13.0 (issue #40): traffic is the standalone
+    # xray.service (+ hysteria), the panel only added a public admin port.
+    # A --force re-run on a box set up by an older version still has it — drop it.
+    if xui_panel_installed; then
+        log_info "=== Removing leftover 3X-UI panel (not used on exit) ==="
+        purge_3xui_panel "$ssh_port"
+    fi
 
-    # Start Caddy AFTER 3X-UI is installed, then add systemd dependency
     if [[ -n "$selfsteal_domain" ]]; then
         start_caddy
         setup_caddy_systemd_dependency "xray"
@@ -198,7 +187,7 @@ main() {
     log_info "=== Security Setup ==="
     local security_args=()
     [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
-    security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY "$panel_port:3X-UI Panel")
+    security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
     if [[ -n "$selfsteal_domain" ]]; then
         security_args+=(80:Caddy-ACME)
     fi
@@ -252,7 +241,7 @@ EOF
     echo "==========================================="
     echo ""
     echo "  Server:    ${server_ip}"
-    echo "  Protocol:  VLESS + Reality + XHTTP"
+    echo "  Protocol:  VLESS + Reality (RAW + xtls-rprx-vision)"
     echo "  Port:      443"
     echo "  SNI:       ${REALITY_SERVER_NAME}"
     if [[ -n "$selfsteal_domain" ]]; then
@@ -264,10 +253,6 @@ EOF
     if [[ -n "$hysteria_port" ]]; then
         echo "  Hysteria2: UDP ${hysteria_port}-${hysteria_port_end} (Salamander)"
     fi
-    echo ""
-    echo "  Panel:     http://${server_ip}:${panel_port}/${panel_path}/"
-    echo "  User:      ${admin_user}"
-    echo "  Password:  ${admin_pass}"
     echo ""
     if [[ "$ssh_port" != "22" ]]; then
         echo "  SSH port:  ${ssh_port}"

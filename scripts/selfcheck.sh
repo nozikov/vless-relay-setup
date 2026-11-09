@@ -23,8 +23,6 @@ run_selfcheck_exit() {
 
     log_info "=== Block 1 — local services ==="
     verify_service_running xray "XRAY"         || _fails=$((_fails + 1))
-    verify_service_running x-ui "3X-UI"          || _fails=$((_fails + 1))
-    check_xui_version update-exit                || _warns=$((_warns + 1))
     verify_port_listening 443 "XRAY"             || _fails=$((_fails + 1))
 
     if [[ -d /etc/caddy ]]; then
