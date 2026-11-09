@@ -43,7 +43,7 @@ install_warp() {
     echo "deb [signed-by=$WARP_KEYRING] https://pkg.cloudflareclient.com/ $codename main" \
         > "$WARP_APT_LIST"
 
-    apt-get update -qq
+    apt_update_retry
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq cloudflare-warp
 
     trap - ERR
