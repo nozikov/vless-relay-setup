@@ -129,15 +129,28 @@ xui_api_request() {
     token=$(xui_api_token) || { log_error "No API token — run setup-relay/update-relay to bootstrap"; return 1; }
     base=$(xui_api_base)
     url="${base}/${path#/}"
-    curlopts=(-sS -m 15 -w $'\n%{http_code}'
-        -H "Authorization: Bearer ${token}"
+    # Neither the token nor the body (client UUIDs = VLESS credentials) goes on
+    # curl's argv — that is world-readable via ps / /proc/*/cmdline. The auth header
+    # comes from a curl config fed on stdin (-K -), the body from a process-
+    # substitution fd (argv shows only /dev/fd/N). Escape \ and " for config quoting.
+    local token_cfg="${token//\\/\\\\}"
+    token_cfg="${token_cfg//\"/\\\"}"
+    curlopts=(-sS -m 15 -w $'\n%{http_code}' -K -
         -H "X-Requested-With: XMLHttpRequest")
     [[ "$base" == https://* ]] && curlopts+=(-k)
     if [[ -n "$body" ]]; then
-        curlopts+=(-H "Content-Type: application/json" --data "$body")
+        curlopts+=(-H "Content-Type: application/json")
     fi
     local resp http_code payload ok msg
-    resp=$(curl "${curlopts[@]}" -X "$method" "$url") || { log_error "curl $method $url failed"; return 1; }
+    if [[ -n "$body" ]]; then
+        resp=$(curl "${curlopts[@]}" --data-binary @<(printf '%s' "$body") -X "$method" "$url" \
+            <<< "header = \"Authorization: Bearer ${token_cfg}\"") \
+            || { log_error "curl $method $url failed"; return 1; }
+    else
+        resp=$(curl "${curlopts[@]}" -X "$method" "$url" \
+            <<< "header = \"Authorization: Bearer ${token_cfg}\"") \
+            || { log_error "curl $method $url failed"; return 1; }
+    fi
     http_code="${resp##*$'\n'}"
     payload="${resp%$'\n'*}"
     if [[ "$http_code" != "200" ]]; then
