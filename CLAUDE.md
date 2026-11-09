@@ -91,7 +91,7 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 - `3xui.sh` — 3X-UI install/configure, SQLite operations, SSL certs, inbound/template management
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
 - `hysteria.sh` — Hysteria 2 installation, YAML config generation, cert copy from Caddy, restart, uninstall
-- `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token; SHA-256 of it in `api_tokens` on v3.3.1+, plaintext bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write.
+- `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token; SHA-256 of it in `api_tokens` on v3.3.1+, plaintext bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write. Token and request body never go on curl's argv (visible in `ps`/`/proc/*/cmdline`): the `Authorization` header is fed as curl config on stdin (`-K -` + here-string), the JSON body via `--data-binary @<(printf …)`. Don't add a second stdin consumer to that curl.
 - `sub-proxy.py` — subscription proxy: sits between Caddy and 3X-UI subscription, appends CDN VLESS + Hysteria 2 links. Passes through HTML pages (QR codes) for browsers, modifies only base64 responses for apps
 
 ## Critical Patterns
@@ -149,6 +149,8 @@ Idempotency: re-running update-* on an already-migrated config is a no-op (jq de
 ### Update Scripts
 
 `update-exit.sh` reads current keys/UUID/dest/xver from XRAY config, regenerates config via `configure_xray_exit()`, restarts. `update-relay.sh` reads current exit params from DB, patches inbound sniffing (routeOnly) via jq, auto-migrates TCP relay inbound to XHTTP if still on TCP (generates random path, patches stream_settings via jq), regenerates template via `configure_3xui_relay_template()`, restarts. Both create timestamped backups and auto-rollback on failure.
+
+3X-UI v3.11 keeps `x-ui.db` in SQLite **WAL** mode, so never `cp` the live DB and never restore without clearing the WAL. `xui_db_backup` (`3xui.sh`) takes the snapshot with `sqlite3 .backup` (consistent while the panel runs; fallback: `x-ui stop` → `cp` → `x-ui start`), switches the copy to `journal_mode=DELETE` (one self-contained file), sets 0600 and requires `integrity_check = ok` or exits. `xui_db_restore` stops x-ui (refuses if it is still active — its shutdown flush would overwrite the restore), removes `x-ui.db-wal`/`-shm`/`-journal` (otherwise sqlite replays post-backup frames on top), copies the backup in; the caller starts x-ui. update-relay takes the backup after the "DB exists" check (sqlite3 would create an empty DB at a missing path).
 
 Both update scripts detect SelfSteal mode (by checking if `dest` contains `caddy.sock`) and preserve it. They also detect the current SSH port from `sshd_config` and pass it through to `setup_security`. With `--upgrade`, Caddy is also updated in SelfSteal mode.
 

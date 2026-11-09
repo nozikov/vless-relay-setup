@@ -159,6 +159,58 @@ disable_acme_cron() {
     fi
 }
 
+# xui_db_backup DEST — consistent snapshot of $XUI_DB into DEST (mode 0600: the DB
+# holds panel credentials and client UUIDs). A plain `cp` of a WAL-mode DB while the
+# panel runs misses commits that still sit in x-ui.db-wal and can copy a torn page
+# set; sqlite's online backup API reads a consistent snapshot through the WAL and is
+# safe against a running panel. Busy timeout covers a panel holding the write lock.
+# Fallback (sqlite3 .backup failed): stop x-ui — a clean shutdown flushes memory to
+# the DB and checkpoints the WAL — then `cp` the main file, then start it again.
+# Either way the result must pass integrity_check, otherwise exit 1 (nothing has
+# been modified yet, so refusing to continue without a usable backup is safe).
+xui_db_backup() {
+    local dest="$1" check=""
+    if ! (umask 077 && sqlite3 -cmd ".timeout 10000" "$XUI_DB" ".backup '${dest//\'/\'\'}'") 2>/dev/null; then
+        log_warn "sqlite3 .backup failed — falling back to x-ui stop + cp"
+        rm -f "$dest"
+        x-ui stop || true
+        (umask 077 && cp "$XUI_DB" "$dest")
+        x-ui start
+    fi
+    chmod 0600 "$dest"
+    # .backup copies the WAL flag in the header too; switch the copy to rollback-
+    # journal mode so it is one self-contained file (no DEST-wal to lose on restore).
+    # The panel re-applies its own journal mode when it opens a restored DB.
+    sqlite3 "$dest" "PRAGMA journal_mode=DELETE;" > /dev/null 2>&1 || true
+    rm -f "${dest}-shm"
+    check=$(sqlite3 "$dest" "PRAGMA integrity_check;" 2>/dev/null) || true
+    if [[ "$check" != "ok" ]]; then
+        log_error "DB backup $dest failed integrity_check (${check:-no output}) — aborting before any change"
+        exit 1
+    fi
+}
+
+# xui_db_restore SRC — put backup SRC back as $XUI_DB. Stops x-ui first: on shutdown
+# the panel writes its in-memory state to the DB, so restoring under a running panel
+# gets overwritten. Stale x-ui.db-wal / -shm / -journal are removed — sqlite would
+# otherwise replay the post-backup WAL frames (or a hot rollback journal) on top of
+# the restored file. The caller starts x-ui afterwards. Returns 1 if x-ui can't be
+# stopped (restoring then would be pointless).
+xui_db_restore() {
+    local src="$1"
+    x-ui stop || true
+    if systemctl is-active --quiet x-ui; then
+        systemctl stop x-ui || true
+        if systemctl is-active --quiet x-ui; then
+            log_error "x-ui still running — not restoring $src (its shutdown would overwrite it)"
+            return 1
+        fi
+    fi
+    rm -f "${XUI_DB}-wal" "${XUI_DB}-shm" "${XUI_DB}-journal"
+    # cp onto the existing file keeps x-ui.db's own owner/mode
+    cp "$src" "$XUI_DB"
+}
+
 # Set a key-value pair in x-ui settings database
 xui_db_set() {
     local key="${1//\'/\'\'}"

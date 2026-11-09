@@ -33,11 +33,7 @@ main() {
     enable_bbr
     raise_service_nofile
 
-    # Backup 3X-UI database before any changes
     local backup_path
-    backup_path="${XUI_DB}.bak.$(date +%Y%m%d-%H%M%S)"
-    cp "$XUI_DB" "$backup_path"
-    log_ok "Database backup saved: $backup_path"
 
     # --- Step 1: Validate existing installation ---
     log_info "=== Checking existing installation ==="
@@ -53,6 +49,12 @@ main() {
         log_error "Run './setup.sh relay' first to perform initial setup"
         exit 1
     fi
+
+    # Backup 3X-UI database before any changes. After the existence checks: sqlite3
+    # would silently create an empty DB at a missing path.
+    backup_path="${XUI_DB}.bak.$(date +%Y%m%d-%H%M%S)"
+    xui_db_backup "$backup_path"
+    log_ok "Database backup saved: $backup_path"
 
     # --- Step 2: Extract current values ---
     log_info "=== Reading current configuration ==="
@@ -297,8 +299,10 @@ main() {
 
     if [[ "$xray_healthy" != true ]]; then
         log_warn "3X-UI/xray failed to bind :443 — restoring DB backup..."
-        x-ui stop || true
-        cp "$backup_path" "$XUI_DB"
+        if ! xui_db_restore "$backup_path"; then
+            log_error "Rollback failed: could not stop x-ui. Restore $backup_path manually"
+            exit 1
+        fi
         x-ui start
         sleep 3
         if systemctl is-active --quiet x-ui && ss -tln 2>/dev/null | grep -qE ':443\s'; then
