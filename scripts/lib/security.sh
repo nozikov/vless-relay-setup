@@ -24,12 +24,60 @@ SSH_SOCKET_DROPINS=(
     /etc/systemd/system/ssh.socket.d/addresses.conf
 )
 
+# Our sshd settings. Ubuntu/Debian cloud images put
+# `Include /etc/ssh/sshd_config.d/*.conf` at the top of sshd_config and sshd
+# keeps the FIRST value it reads, so a provider's 50-cloud-init.conf with
+# `PasswordAuthentication yes` beats any edit further down the main file (#57).
+# 00-* sorts first, so these values win.
+SSH_HARDENING_DROPIN=/etc/ssh/sshd_config.d/00-vpn-hardening.conf
+
+# True if the main sshd_config pulls in sshd_config.d/*.conf (Debian 11+/Ubuntu 20.04+).
+sshd_config_includes_dropins() {
+    local ssh_config="${1:-/etc/ssh/sshd_config}"
+    local includes
+    includes=$(grep -Ei '^[[:space:]]*Include[[:space:]]+(/etc/ssh/)?sshd_config\.d/' "$ssh_config" 2>/dev/null) || true
+    [[ -n "$includes" ]]
+}
+
+# Effective SSH port: the first `port` of `sshd -T` (main file + drop-ins, as
+# sshd itself resolves them), falling back to our drop-in, then the main file, then 22.
+detect_ssh_port() {
+    local sshd_bin effective port=""
+    sshd_bin=$(command -v sshd 2>/dev/null || echo /usr/sbin/sshd)
+    # sshd -T refuses to run without the privsep dir, which a socket-activated
+    # box that never took a connection doesn't have yet.
+    install -d -m 0755 /run/sshd 2>/dev/null || true
+    effective=$("$sshd_bin" -T 2>/dev/null) || true
+    port=$(awk '$1 == "port" {print $2; exit}' <<< "$effective")
+    if [[ -z "$port" ]]; then
+        port=$(awk 'tolower($1) == "port" {print $2; exit}' "$SSH_HARDENING_DROPIN" 2>/dev/null) || true
+    fi
+    if [[ -z "$port" ]]; then
+        port=$(awk 'tolower($1) == "port" {print $2; exit}' /etc/ssh/sshd_config 2>/dev/null) || true
+    fi
+    if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+        port=22
+    fi
+    echo "$port"
+}
+
+# Put sshd_config and our drop-in back as they were before setup_ssh_hardening.
+# Reads setup_ssh_hardening's locals via bash dynamic scoping.
+_ssh_restore_config_files() {
+    cp -p "$backup_dir/sshd_config" "$ssh_config"
+    if [[ -f "$backup_dir/vpn-hardening.conf" ]]; then
+        cp -p "$backup_dir/vpn-hardening.conf" "$SSH_HARDENING_DROPIN"
+    else
+        rm -f "$SSH_HARDENING_DROPIN"
+    fi
+}
+
 # Undo setup_ssh_hardening: sshd_config, socket-activation state, unit enablement.
 # Called only from setup_ssh_hardening — reads its locals via bash dynamic scoping.
 _ssh_hardening_rollback() {
     local dropin prev_port
-    log_error "Restoring previous sshd_config and SSH units; UFW was NOT touched."
-    cp -p "$backup_dir/sshd_config" "$ssh_config"
+    log_error "Restoring previous sshd_config, ${SSH_HARDENING_DROPIN} and SSH units; UFW was NOT touched."
+    _ssh_restore_config_files
 
     if [[ "$socket_switched" == true ]]; then
         for dropin in "${SSH_SOCKET_DROPINS[@]}"; do
@@ -64,8 +112,7 @@ _ssh_hardening_rollback() {
     fi
     rm -rf "$backup_dir"
 
-    prev_port=$(grep -m1 '^Port ' "$ssh_config" 2>/dev/null | awk '{print $2}') || true
-    prev_port="${prev_port:-22}"
+    prev_port=$(detect_ssh_port)
     if tcp_port_listening "$prev_port"; then
         log_error "SSH is listening on port ${prev_port} again. Check: systemctl status ${sshd_service} ssh.socket"
     else
@@ -83,7 +130,7 @@ setup_ssh_hardening() {
     local socket_was_active=false socket_was_enabled=false service_was_enabled=false
     local service_was_active=false
     local socket_switched=false
-    local dropin
+    local dropin effective eff_ports eff_password has_include=false
 
     log_info "Hardening SSH..."
 
@@ -100,17 +147,45 @@ setup_ssh_hardening() {
     # doesn't leave copies piling up in /etc/ssh, and they're gone after reboot.
     backup_dir=$(mktemp -d /run/vpn-ssh-hardening.XXXXXX)
     cp -p "$ssh_config" "$backup_dir/sshd_config"
+    if [[ -f "$SSH_HARDENING_DROPIN" ]]; then
+        cp -p "$SSH_HARDENING_DROPIN" "$backup_dir/vpn-hardening.conf"
+    fi
 
-    # Disable password authentication
+    # The main file is edited too: it is what sshd reads when there is no
+    # Include (older Debian), and it keeps the main file consistent with the
+    # drop-in when the Include sits below these lines. Prepending an Include
+    # ourselves would instead pull unknown drop-ins into the config.
     sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' "$ssh_config"
     sed -i 's/^#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' "$ssh_config"
     sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' "$ssh_config"
+    sed -i 's/^#\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/' "$ssh_config"
 
-    # Set SSH port — always clean existing Port lines to handle revert to 22
+    # Port is cumulative (every Port line adds a listener), not first-wins, so it
+    # goes to exactly one place. Always drop it from the main file — this also
+    # removes the line v1.12 and earlier appended there — and handles revert to 22.
     sed -i '/^#\?Port /d' "$ssh_config"
+    sshd_config_includes_dropins "$ssh_config" && has_include=true
+    if [[ "$has_include" == true ]]; then
+        mkdir -p "$(dirname "$SSH_HARDENING_DROPIN")"
+        cat > "$SSH_HARDENING_DROPIN" << SSHD
+# Managed by vless-relay-setup (setup_ssh_hardening). Sorts first in
+# sshd_config.d, so these values beat provider drop-ins like 50-cloud-init.conf.
+Port ${ssh_port}
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+PermitRootLogin prohibit-password
+SSHD
+        chmod 0644 "$SSH_HARDENING_DROPIN"
+    else
+        # No Include: sshd never reads sshd_config.d, the main file is authoritative.
+        rm -f "$SSH_HARDENING_DROPIN"
+        if [[ "$ssh_port" != "22" ]]; then
+            echo "Port $ssh_port" >> "$ssh_config"
+        fi
+    fi
     if [[ "$ssh_port" != "22" ]]; then
-        echo "Port $ssh_port" >> "$ssh_config"
-        log_info "SSH port changed to $ssh_port"
+        log_info "SSH port set to $ssh_port"
     fi
 
     # Validate before touching any unit: a broken config must not reach a restart.
@@ -120,9 +195,26 @@ setup_ssh_hardening() {
     install -d -m 0755 /run/sshd
     if ! "$sshd_bin" -t -f "$ssh_config"; then
         log_error "sshd_config failed validation (sshd -t) — restoring it, sshd NOT restarted"
-        cp -p "$backup_dir/sshd_config" "$ssh_config"
+        _ssh_restore_config_files
         rm -rf "$backup_dir"
         exit 1
+    fi
+
+    # Check the values sshd will actually use (main file + every drop-in, first
+    # value wins). sshd -T only reads files, so checking before the restart gives
+    # the same answer as after it — and a mismatch costs no restart at all.
+    effective=$("$sshd_bin" -T -f "$ssh_config" 2>/dev/null) || true
+    eff_password=$(awk '$1 == "passwordauthentication" {print $2; exit}' <<< "$effective")
+    eff_ports=$(awk '$1 == "port" {print $2}' <<< "$effective")
+    if [[ "$eff_password" != "no" ]] || ! grep -qx "$ssh_port" <<< "$eff_ports"; then
+        log_error "Effective sshd config (sshd -T) does not match: passwordauthentication=${eff_password:-?}, port(s)=${eff_ports//$'\n'/,} (expected no / ${ssh_port})"
+        log_error "Another file in /etc/ssh/sshd_config.d probably overrides it — restoring, sshd NOT restarted"
+        _ssh_restore_config_files
+        rm -rf "$backup_dir"
+        exit 1
+    fi
+    if [[ "$eff_ports" != "$ssh_port" ]]; then
+        log_warn "sshd will also listen on other ports (${eff_ports//$'\n'/,}) — a Port line outside our config; UFW opens only ${ssh_port}"
     fi
 
     # Service is named "ssh" on Debian/Ubuntu, "sshd" on RHEL/Fedora
@@ -212,7 +304,52 @@ setup_ufw() {
     log_ok "UFW configured: $summary"
 }
 
+# UFW rules only accumulate: after an SSH port change the old port and the
+# 22:SSH-fallback rule stay open (#58). Delete our own SSH rules (comment exactly
+# "SSH" / "SSH-fallback") on ports outside the keep list. Rules without our
+# comments are the admin's and stay. Runs only when sshd is confirmed on the
+# first keep port, and never removes a port sshd currently listens on.
+# Usage: prune_stale_ssh_ufw_rules KEEP_PORT [KEEP_PORT ...]
+prune_stale_ssh_ufw_rules() {
+    local keep_ports=("$@")
+    local added line port keep k
+    local stale=()
+    local rule_re="^ufw allow ([0-9]+)/tcp comment '(SSH|SSH-fallback)'$"
+
+    if ! sshd_listens_on "${keep_ports[0]}"; then
+        log_info "sshd is not confirmed on port ${keep_ports[0]} — leaving existing SSH rules in UFW"
+        return 0
+    fi
+
+    added=$(ufw show added 2>/dev/null) || return 0
+    while IFS= read -r line; do
+        [[ "$line" =~ $rule_re ]] || continue
+        port="${BASH_REMATCH[1]}"
+        keep=false
+        for k in "${keep_ports[@]}"; do
+            [[ "$port" == "$k" ]] && keep=true
+        done
+        if [[ "$keep" == false ]] && sshd_listens_on "$port"; then
+            log_warn "sshd still listens on ${port} — keeping its UFW rule"
+            keep=true
+        fi
+        if [[ "$keep" == false ]]; then
+            stale+=("$port")
+        fi
+    done <<< "$added"
+
+    for port in "${stale[@]}"; do
+        # Delete by rule spec: removes the v4 and v6 rule, no renumbering issues.
+        if ufw --force delete allow "${port}/tcp" >/dev/null; then
+            log_info "Removed stale UFW SSH rule for port ${port}"
+        else
+            log_warn "Failed to remove stale UFW rule for port ${port}"
+        fi
+    done
+}
+
 setup_fail2ban() {
+    # ssh_port may be a comma list ("2222,22" while UFW keeps an SSH fallback)
     local ssh_port="${1:-22}"
 
     log_info "Installing and configuring fail2ban..."
@@ -240,6 +377,7 @@ setup_security() {
     # Usage: setup_security [--skip-ssh] [--ssh-port PORT] port:label [port:label ...]
     local skip_ssh=false
     local ssh_port=22
+    local keep_ports=() entry
     while [[ "${1:-}" == --* ]]; do
         case "$1" in
             --skip-ssh) skip_ssh=true; shift ;;
@@ -253,15 +391,26 @@ setup_security() {
     else
         setup_ssh_hardening "$ssh_port"
     fi
-    setup_fail2ban "$ssh_port"
 
     # Never let UFW seal off the only working SSH port. Hardening verifies its
     # own port switch, but with --skip-ssh / no authorized_keys sshd_config is
     # left as is and sshd may still be on 22 while only ssh_port gets allowed.
     if [[ "$ssh_port" != "22" ]] && ! tcp_port_listening "$ssh_port" && tcp_port_listening 22; then
+        # Port 22 stays reachable, so the sshd jail must cover it too.
+        setup_fail2ban "${ssh_port},22"
         log_warn "Nothing listens on SSH port ${ssh_port}, but port 22 does — keeping 22 open in UFW"
         setup_ufw "$@" "22:SSH-fallback"
+        keep_ports+=(22)
     else
+        setup_fail2ban "$ssh_port"
         setup_ufw "$@"
     fi
+
+    # Every port we just allowed stays, whatever its label: `ufw delete allow
+    # PORT/tcp` matches by spec, so pruning an old SSH port that is now reused
+    # by another service would close that service.
+    for entry in "$@"; do
+        keep_ports+=("${entry%%:*}")
+    done
+    prune_stale_ssh_ufw_rules "$ssh_port" "${keep_ports[@]}"
 }
