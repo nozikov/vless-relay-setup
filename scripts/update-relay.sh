@@ -489,8 +489,7 @@ SVCEOF
     # --- Step 6: Security ---
     log_info "=== Security ==="
     local ssh_port
-    ssh_port=$(grep -E '^Port ' /etc/ssh/sshd_config 2>/dev/null | head -1 | awk '{print $2}') || true
-    ssh_port="${ssh_port:-22}"
+    ssh_port=$(detect_ssh_port)
     log_info "Current SSH port: $ssh_port"
 
     local security_args=()
