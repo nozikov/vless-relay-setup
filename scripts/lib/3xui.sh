@@ -16,6 +16,46 @@ XUI_DB="/etc/x-ui/x-ui.db"
 # and 3xui.sh (relay) use the same values. This prevents mismatch between
 # relay outbound scMaxEachPostBytes and exit inbound cap.
 
+# Pinned 3X-UI release. install.sh is pulled from the SAME tag (not master), so the
+# installer behaviour below is the one verified against. v3.11.0 is the first
+# release that closes all published advisories against v3.x (issue #53).
+XUI_VERSION="v3.11.0"
+
+# Run the pinned 3X-UI install.sh non-interactively. Same call for a fresh install
+# and for an upgrade of an already-configured panel (install.sh skips the
+# credentials/port setup when they're already set, then runs `x-ui migrate`).
+#
+# Verified against the v3.11.0 installer source: since v3.6.0 install.sh has a
+# non-interactive mode (XUI_NONINTERACTIVE=1, or any non-TTY stdin) where every
+# prompt is replaced by an env var or a default — the old answers-file feed is no
+# longer read at all. We set explicitly what we rely on:
+#   XUI_SSL_MODE=none          → Skip SSL; in NI mode "bind to 127.0.0.1?" is n.
+#                                (The interactive default is an LE IP cert via
+#                                acme.sh on :80, which collides with Caddy.)
+#   XUI_DB_TYPE=sqlite         → we read/write /etc/x-ui/x-ui.db directly.
+#   XUI_ENABLE_FAIL2BAN=false  → v3.11 otherwise runs `x-ui setup-fail2ban` (IP
+#                                Limit): installs nftables, drops jail.d files incl.
+#                                a global `backend = systemd` override and edits
+#                                jail.local. fail2ban is ours (security.sh); we
+#                                don't use IP Limit.
+#   XUI_SERVER_IP              → when none of install.sh's IP-echo providers answer,
+#                                NI mode takes this instead of looping on "Please
+#                                enter your server's public IPv4 address" (v3.1.0 +
+#                                answers file spun forever on EOF — issue #52). It
+#                                only feeds the printed access URL, so empty is fine;
+#                                our scripts don't detect the IP before install, the
+#                                operator may export it.
+# Panel port: XUI_PANEL_PORT unset → random port (same as before). `< /dev/null`
+# keeps stdin a non-TTY so it never falls back to prompting, even when setup.sh
+# runs in a terminal; on our path (SSL none, SQLite) every read in install.sh is
+# behind the NONINTERACTIVE guard.
+run_3xui_installer() {
+    XUI_NONINTERACTIVE=1 XUI_SSL_MODE=none XUI_DB_TYPE=sqlite XUI_ENABLE_FAIL2BAN=false \
+        XUI_SERVER_IP="${XUI_SERVER_IP:-}" \
+        bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/${XUI_VERSION}/install.sh") \
+        "${XUI_VERSION}" < /dev/null
+}
+
 install_3xui() {
     local skip_acme_port="${1:-false}"
 
@@ -24,26 +64,7 @@ install_3xui() {
     # Open port 80 temporarily — the installer uses it for Let's Encrypt SSL cert
     ufw allow 80/tcp comment "ACME temp" > /dev/null 2>&1 || true
 
-    # Pin 3X-UI to v3.1.0 and pull install.sh from the SAME tag (not master) so the
-    # interactive prompt set is stable. Verified against the v3.1.0 installer source
-    # (config_after_install / prompt_and_setup_ssl), the fresh-install prompt order is:
-    #   1. Database type        [Choose [1]:]        blank → 1 = SQLite
-    #   2. Customize panel port? [y/n]               blank → random port
-    #   3. SSL method            [Choose (default 2)] → 4 = Skip SSL
-    #      (blank here defaults to 2 = Let's Encrypt IP cert, which runs acme.sh on
-    #       :80 and collides with Caddy — must explicitly pick 4)
-    #   4. Bind panel to 127.0.0.1 only? [y/N]       blank → N (keep all-interfaces)
-    # The SSL prompt is the 3rd read, not the 2nd — feeding 4 too early lands it on the
-    # panel-port question and leaves SSL at its IP-cert default. Order matters.
-    {
-        printf '\n'   # 1. DB type            → SQLite (default 1)
-        printf '\n'   # 2. Customize port?    → no (random port)
-        printf '4\n'  # 3. SSL method         → Skip SSL
-        printf '\n'   # 4. Bind to 127.0.0.1? → N (all interfaces)
-        printf '\n%.0s' {1..96}  # any further/unexpected prompts: accept defaults
-    } > /tmp/xui-answers
-    bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
-    rm -f /tmp/xui-answers
+    run_3xui_installer
 
     # Close temporary port 80 — unless Caddy needs it permanently (SelfSteal mode)
     if [[ "$skip_acme_port" != true ]]; then

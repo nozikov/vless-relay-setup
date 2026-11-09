@@ -91,7 +91,7 @@ All sourced via `BASH_SOURCE` from orchestration scripts:
 - `3xui.sh` — 3X-UI install/configure, SQLite operations, SSL certs, inbound/template management
 - `verify.sh` — post-setup smoke tests (services, ports, connectivity)
 - `hysteria.sh` — Hysteria 2 installation, YAML config generation, cert copy from Caddy, restart, uninstall
-- `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token via `api_tokens`, bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write.
+- `xui-api.sh` — 3X-UI v3.x REST API client (Bearer token; SHA-256 of it in `api_tokens` on v3.3.1+, plaintext bootstrapped to `/etc/vpn-cli/api-token`): inbound + client create/delete/list. Used by setup-relay/update-relay/vpn/selfcheck. `settings`/`xrayTemplateConfig` stay on DB-write.
 - `sub-proxy.py` — subscription proxy: sits between Caddy and 3X-UI subscription, appends CDN VLESS + Hysteria 2 links. Passes through HTML pages (QR codes) for browsers, modifies only base64 responses for apps
 
 ## Critical Patterns
@@ -110,6 +110,8 @@ x-ui start         # Load fresh state from DB
 
 **v3.x (since 1.11.0):** client/inbound *writes* go through the REST API (`lib/xui-api.sh`, Bearer token, CSRF-exempt `/panel/api/*`) so they populate v3's normalized `clients`+`client_inbounds` tables (the subscription server reads those — raw JSON-only writes 404, issue #44). The `x-ui stop`/`start` window is now used only for `settings`/`xrayTemplateConfig` DB-writes and `bootstrap_api_token`. Reads (`vpn list/link`, selfcheck) read the normalized `clients` table directly.
 
+**API token storage (v3.3.1+, pinned v3.11.0):** `api_tokens.token` holds SHA-256(plaintext) — the panel hashes the presented Bearer and compares. `/etc/vpn-cli/api-token` keeps the plaintext. `bootstrap_api_token` decides plaintext vs hash by the `ApiTokensHash` row in `history_of_seeders` and sets `scope='admin'`/`expires_at=0` only if those columns exist, so it works on both v3.1.0 and v3.11.0 DBs. It runs on every update-relay (after `--upgrade` too) and re-issues the token if the row doesn't match — this is what repairs relays upgraded from v3.1.0. It also revokes the installer's own `install`/`cli-fallback` tokens (their plaintext lands in the setup log).
+
 ### 3X-UI Inbound Normalization
 
 > **Obsolete since 1.11.0 (v3.x migration).** The two-restart insert→strip→patch cycle below applied to the v2.x raw-sqlite INSERT path. On v3.x the relay inbound is created via `POST /panel/api/inbounds/add`, which persists `realitySettings`/`subId` verbatim and live-injects into xray — no field stripping, no double-restart, and `patch_3xui_relay_inbound` was removed. The historical description is kept below for context.
@@ -127,7 +129,7 @@ See `patch_3xui_relay_inbound()` and `create_3xui_relay_inbound()` in `3xui.sh`.
 
 ### Interactive Installer Workarounds
 
-- **3X-UI installer**: Feed 100 newlines via file (`/tmp/xui-answers`) to accept defaults. Using `yes ""` causes SIGPIPE with `set -o pipefail`.
+- **3X-UI installer** (pinned `XUI_VERSION=v3.11.0` in `3xui.sh`, install.sh from the same tag): always via `run_3xui_installer` — `XUI_NONINTERACTIVE=1 XUI_SSL_MODE=none XUI_DB_TYPE=sqlite XUI_ENABLE_FAIL2BAN=false XUI_SERVER_IP=… < /dev/null`. Since v3.6.0 install.sh replaces every prompt with env/defaults in non-interactive mode, so the old answers file (`/tmp/xui-answers`) is gone. `XUI_ENABLE_FAIL2BAN=false` keeps the installer from rewriting our fail2ban config (IP Limit jail + global `backend=systemd`). `XUI_SERVER_IP` replaces the "enter your IPv4" loop when IP detection fails (issue #52).
 - **XRAY installer**: Redirect `< /dev/null` to prevent stdin consumption from piped input.
 
 ### SSL Certificate Caching

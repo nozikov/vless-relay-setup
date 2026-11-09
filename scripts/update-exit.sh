@@ -175,20 +175,11 @@ main() {
 
         if command -v x-ui &> /dev/null; then
             log_info "Upgrading 3X-UI..."
-            # Pinned to v3.1.0 — see scripts/lib/3xui.sh:install_3xui. Exit panel is
-            # decorative (real exit xray is standalone) — no API migration needed.
-            # On an already-configured panel install.sh skips the DB/port prompts; the
-            # only question is SSL (then a bind-to-127.0.0.1 y/N when SSL=4). The SSL
-            # answer (4 = Skip) must be FIRST — a leading blank would default SSL to
-            # option 2 (LE IP cert, acme on :80, collides with Caddy).
-            {
-                printf '4\n'  # SSL method         → Skip SSL
-                printf '\n'   # Bind to 127.0.0.1? → N (all interfaces)
-                printf '\n%.0s' {1..98}  # any further/unexpected prompts: accept defaults
-            } > /tmp/xui-answers
-            bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/v3.1.0/install.sh) v3.1.0 < /tmp/xui-answers
-            rm -f /tmp/xui-answers
-            log_ok "3X-UI upgraded to v3.1.0"
+            # Pinned version + non-interactive flags: see run_3xui_installer in
+            # scripts/lib/3xui.sh. Exit panel is decorative (real exit xray is
+            # standalone) — no API token / client migration needed here.
+            run_3xui_installer
+            log_ok "3X-UI upgraded to ${XUI_VERSION}"
         fi
 
         if [[ "$is_selfsteal" == true ]]; then
