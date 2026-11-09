@@ -122,11 +122,12 @@ bootstrap_api_token() {
 }
 
 # xui_api_request METHOD PATH [JSON_BODY]
-# Echoes the JSON payload on success; returns 1 (with log_error) otherwise.
+# Echoes the JSON payload on success; returns 1 (log_error on stderr, so a
+# captured $(...) holds only the payload) otherwise.
 xui_api_request() {
     local method="$1" path="$2" body="${3:-}"
     local token base url curlopts=()
-    token=$(xui_api_token) || { log_error "No API token — run setup-relay/update-relay to bootstrap"; return 1; }
+    token=$(xui_api_token) || { log_error "No API token — run setup-relay/update-relay to bootstrap" >&2; return 1; }
     base=$(xui_api_base)
     url="${base}/${path#/}"
     # Neither the token nor the body (client UUIDs = VLESS credentials) goes on
@@ -145,22 +146,22 @@ xui_api_request() {
     if [[ -n "$body" ]]; then
         resp=$(curl "${curlopts[@]}" --data-binary @<(printf '%s' "$body") -X "$method" "$url" \
             <<< "header = \"Authorization: Bearer ${token_cfg}\"") \
-            || { log_error "curl $method $url failed"; return 1; }
+            || { log_error "curl $method $url failed" >&2; return 1; }
     else
         resp=$(curl "${curlopts[@]}" -X "$method" "$url" \
             <<< "header = \"Authorization: Bearer ${token_cfg}\"") \
-            || { log_error "curl $method $url failed"; return 1; }
+            || { log_error "curl $method $url failed" >&2; return 1; }
     fi
     http_code="${resp##*$'\n'}"
     payload="${resp%$'\n'*}"
     if [[ "$http_code" != "200" ]]; then
-        log_error "API $method ${path} → HTTP ${http_code}: ${payload}"
+        log_error "API $method ${path} → HTTP ${http_code}: ${payload}" >&2
         return 1
     fi
     ok=$(printf '%s' "$payload" | jq -r '.success // false' 2>/dev/null) || ok=false
     if [[ "$ok" != "true" ]]; then
         msg=$(printf '%s' "$payload" | jq -r '.msg // "unknown error"' 2>/dev/null) || msg="unparseable response"
-        log_error "API $method ${path} → success=false: ${msg}"
+        log_error "API $method ${path} → success=false: ${msg}" >&2
         return 1
     fi
     printf '%s' "$payload"
@@ -176,7 +177,7 @@ xui_api_add_inbound() {
         tag=$(printf '%s' "$inbound_json" | jq -r '.tag // empty')
         [[ -n "$tag" ]] && id=$(xui_api_inbound_id "$tag")
     fi
-    [[ -n "$id" ]] || { log_error "inbounds/add: cannot determine new inbound id"; return 1; }
+    [[ -n "$id" ]] || { log_error "inbounds/add: cannot determine new inbound id" >&2; return 1; }
     printf '%s' "$id"
 }
 
