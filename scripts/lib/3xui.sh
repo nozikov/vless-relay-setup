@@ -159,7 +159,7 @@ xui_panel_installed() {
 # $1 = SSH port (protected from the UFW cleanup), default 22.
 purge_3xui_panel() {
     local ssh_port="${1:-22}"
-    local panel_port="" ports=() added p backup ts f2b_changed=false f svc line
+    local panel_port="" ports=() added p backup ts f2b_changed=false f svc line unit_path
 
     if ! xui_panel_installed; then
         log_info "3X-UI panel not installed — nothing to purge"
@@ -171,6 +171,9 @@ purge_3xui_panel() {
     if [[ -f "$XUI_DB" ]]; then
         panel_port=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='webPort';" 2>/dev/null) || true
     fi
+
+    # Older installers may have put the unit elsewhere (e.g. /usr/lib/systemd/system)
+    unit_path=$(systemctl show -p FragmentPath --value x-ui 2>/dev/null) || unit_path=""
 
     systemctl stop x-ui 2>/dev/null || true
     systemctl disable x-ui 2>/dev/null || true
@@ -188,6 +191,9 @@ purge_3xui_panel() {
     fi
 
     rm -f /etc/systemd/system/x-ui.service /etc/systemd/system/multi-user.target.wants/x-ui.service
+    if [[ "$unit_path" == */x-ui.service ]]; then
+        rm -f "$unit_path"
+    fi
     rm -rf /etc/systemd/system/x-ui.service.d
     systemctl daemon-reload 2>/dev/null || true
     systemctl reset-failed x-ui 2>/dev/null || true
