@@ -281,6 +281,24 @@ configure_3xui_relay_template() {
     local extra_json
     extra_json=$(xhttp_extra_json)
 
+    # xray-core 26.10+: a freedom outbound blocks private destinations by default
+    # when the traffic came in via a vless inbound. proxy-exit dials the exit
+    # through `fragment` (freedom), so a private/CGNAT exit IP (relay and exit in
+    # one provider network) is dropped with "proxy/freedom: blocked target".
+    # finalRules are matched before that default block — allow exactly the exit
+    # IP, every other private destination stays blocked (issue #59). The rule has
+    # an `ip` key, so 3X-UI's FreedomFinalRulesPrivateEgressBlock seeder leaves it
+    # alone. Public exit IP → no finalRules (default behaviour, nothing to allow).
+    local fragment_final_rules='null'
+    if is_private_ipv4 "$exit_ip"; then
+        fragment_final_rules=$(jq -n -c --arg ip "$exit_ip" '[{action: "allow", ip: [$ip]}]')
+        log_warn "Exit IP $exit_ip is a private/CGNAT address — allowing exactly this IP"
+        log_warn "  in the 'fragment' outbound finalRules (xray-core 26.10+ blocks private targets)."
+        log_warn "  The Relay channel works only if this relay reaches $exit_ip directly."
+        log_warn "  Direct Exit / CDN asymmetric / Hysteria links also point to $exit_ip"
+        log_warn "  and are unreachable for clients outside that private network."
+    fi
+
     local template
     template=$(jq -n -c \
         --arg exit_ip "$exit_ip" \
@@ -291,6 +309,7 @@ configure_3xui_relay_template() {
         --arg exit_sni "$exit_sni" \
         --argjson api_port "$api_port" \
         --argjson extra "$extra_json" \
+        --argjson fragment_final_rules "$fragment_final_rules" \
         '{
             log: {
                 loglevel: "warning",
@@ -362,13 +381,15 @@ configure_3xui_relay_template() {
                 {
                     tag: "fragment",
                     protocol: "freedom",
-                    settings: {
+                    settings: ({
                         fragment: {
                             packets: "tlshello",
                             length: "100-200",
                             interval: "10-20"
                         }
                     }
+                    + (if $fragment_final_rules == null then {}
+                       else {finalRules: $fragment_final_rules} end))
                 }
             ],
             routing: {
