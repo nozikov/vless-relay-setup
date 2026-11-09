@@ -128,7 +128,7 @@ generate_random_port() {
     while true; do
         port=$(shuf -i 10000-60000 -n 1)
         # Skip if port is already listening
-        if ss -tlnp 2>/dev/null | grep -q ":${port} "; then
+        if [[ -n "$(ss -tlnH "sport = :${port}" 2>/dev/null)" ]]; then
             continue
         fi
         # Skip if in excluded list
