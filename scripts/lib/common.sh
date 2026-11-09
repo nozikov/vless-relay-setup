@@ -223,8 +223,22 @@ LIMITS
     log_ok "systemd nofile limit set to 65535 (applies on next service start)"
 }
 
+# On a freshly booted VM unattended-upgrades holds the dpkg lock for minutes and
+# apt-get fails immediately with exit 100. Make apt wait for the lock instead.
+# Idempotent; called before every apt run in update_system/install_dependencies.
+configure_apt_lock_timeout() {
+    local conf=/etc/apt/apt.conf.d/99-vpn-lock-timeout
+    if [[ -f "$conf" ]] && grep -q 'DPkg::Lock::Timeout "300";' "$conf"; then
+        return 0
+    fi
+    mkdir -p /etc/apt/apt.conf.d
+    echo 'DPkg::Lock::Timeout "300";' > "$conf"
+    log_ok "apt dpkg lock timeout set to 300s"
+}
+
 install_dependencies() {
     log_info "Installing dependencies..."
+    configure_apt_lock_timeout
     apt-get update -qq
     apt-get install -y -qq curl wget unzip jq openssl cron socat git sqlite3 > /dev/null 2>&1
     log_ok "Dependencies installed"
@@ -232,6 +246,7 @@ install_dependencies() {
 
 update_system() {
     log_info "Updating system..."
+    configure_apt_lock_timeout
     apt-get update -qq && apt-get upgrade -y -qq > /dev/null 2>&1
     log_ok "System updated"
 }
