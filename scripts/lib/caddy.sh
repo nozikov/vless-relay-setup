@@ -218,7 +218,7 @@ start_caddy() {
     # Check port 80 availability
     if [[ -n "$(ss -tlnH "sport = :80" 2>/dev/null)" ]]; then
         local pid
-        pid=$(ss -tlnp | grep ":80 " | grep -oP 'pid=\K[0-9]+' | head -1)
+        pid=$(ss -tlnpH "sport = :80" 2>/dev/null | grep -oP 'pid=\K[0-9]+' | head -1) || pid="?"
         log_warn "Port 80 is occupied by PID $pid"
         log_warn "Caddy needs port 80 for ACME HTTP challenges"
     fi

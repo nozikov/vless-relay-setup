@@ -16,6 +16,7 @@ show_usage() {
     echo "                 Use --upgrade to also update XRAY (+ Caddy/Hysteria) binaries"
     echo "                 Use --enable-warp/--disable-warp for AI WARP outbound"
     echo "                 Removes a leftover 3X-UI panel; --keep-3xui to leave it as is"
+    echo "                 (a panel with its own inbounds is kept unless --purge-3xui)"
     echo "  update-relay — Update relay server config from latest codebase"
     echo "                 Use --upgrade to also update 3X-UI"
     echo "  selfcheck    — Verify server health (services, ports, cert, masque)"

@@ -113,6 +113,15 @@ main() {
         log_info "SelfSteal mode detected"
     fi
 
+    # SelfSteal: is the subscription served through Caddy (subscription domain set)?
+    # Only then bind it to loopback and close its UFW port (issue #40).
+    local sub_bind="" sub_close_port="" sub_domain_db
+    sub_domain_db=$(sqlite3 "$XUI_DB" "SELECT value FROM settings WHERE key='subDomain';") || true
+    if [[ "$is_selfsteal" == true && -n "$sub_domain_db" ]]; then
+        sub_bind="with-sub"
+        sub_close_port="$sub_port_raw"
+    fi
+
     local is_cdn=false
     local cdn_settings
     cdn_settings=$(sqlite3 "$XUI_DB" \
@@ -193,7 +202,7 @@ main() {
     # SelfSteal: panel + subscription server on loopback only — Caddy is the only
     # way in (issue #40). Relays set up before v1.13.0 listened on 0.0.0.0.
     if [[ "$is_selfsteal" == true ]]; then
-        xui_bind_loopback
+        xui_bind_loopback "$sub_bind"
         log_ok "3X-UI panel/subscription bound to 127.0.0.1 (access via Caddy domains)"
     fi
 
@@ -319,6 +328,11 @@ main() {
         fi
         if [[ -f "${backup_path}.api-token" ]]; then
             install -m 0600 "${backup_path}.api-token" "$XUI_API_TOKEN_FILE"
+            rm -f "${backup_path}.api-token"
+        else
+            # No token before this run: one bootstrapped now has no row in the
+            # restored DB — drop it so the next update-relay re-issues cleanly.
+            rm -f "$XUI_API_TOKEN_FILE"
         fi
         x-ui start
         sleep 3
@@ -330,6 +344,8 @@ main() {
         exit 1
     fi
     log_ok "3X-UI restarted with updated template (xray bound :443)"
+    # Past the only rollback point — the plaintext token copy is no longer needed
+    rm -f "${backup_path}.api-token"
 
     # Re-assert the CDN client set via API. The upgrade seeder migrated relay clients
     # into the normalized tables; the CDN "-cdn" variants are ours to reconcile.
@@ -517,7 +533,9 @@ SVCEOF
     fi
     setup_security "${security_args[@]}"
     if [[ "$is_selfsteal" == true ]]; then
-        close_relay_panel_ports "$panel_port" "$sub_port_raw"
+        # subPort only when Caddy proxies the subscription; otherwise an admin rule
+        # for IP:subPort may be the only way subscriptions are served.
+        close_xui_ufw_ports "$ssh_port" "$panel_port" "$sub_close_port"
     fi
 
     # Install vpn CLI symlink (issue #23) — идемпотентно для существующих серверов

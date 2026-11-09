@@ -111,7 +111,7 @@ main() {
     # before XRAY is (re)configured, so its listeners can't collide with new ports.
     if xui_panel_installed; then
         log_info "=== Removing leftover 3X-UI panel (not used on exit) ==="
-        purge_3xui_panel "$ssh_port"
+        purge_3xui_panel "$ssh_port" force
     fi
 
     # --- Step 3: Install and configure XRAY ---

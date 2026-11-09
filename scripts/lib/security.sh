@@ -7,7 +7,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 # has not spawned sshd yet does not count — sshd may still fail to start).
 sshd_listens_on() {
     local port="$1"
-    ss -tlnpH "sport = :${port}" 2>/dev/null | grep -q '"sshd"'
+    local out
+    out=$(ss -tlnpH "sport = :${port}" 2>/dev/null) || true
+    [[ "$out" == *'"sshd"'* ]]
 }
 
 # True if anything (sshd or a systemd socket) accepts TCP on the port.
@@ -359,9 +361,44 @@ ufw_close_tcp_port() {
     # under pipefail.
     added=$(ufw show added 2>/dev/null) || true
     if grep -qE "^ufw allow ${port}/tcp( |\$)" <<< "$added"; then
-        ufw delete allow "${port}/tcp" > /dev/null 2>&1 || true
+        ufw --force delete allow "${port}/tcp" > /dev/null 2>&1 || true
         log_ok "UFW: closed ${port}/tcp${label:+ ($label)}"
     fi
+}
+
+# Print (one per line) the TCP ports of UFW allow rules whose comment is exactly $1.
+ufw_tcp_ports_with_comment() {
+    local comment="$1" added line
+    command -v ufw &> /dev/null || return 0
+    added=$(ufw show added 2>/dev/null) || return 0
+    while IFS= read -r line; do
+        if [[ "$line" =~ ^ufw\ allow\ ([0-9]+)/tcp\ comment\ \'(.*)\'$ ]] \
+           && [[ "${BASH_REMATCH[2]}" == "$comment" ]]; then
+            echo "${BASH_REMATCH[1]}"
+        fi
+    done <<< "$added"
+}
+
+# Close UFW rules for 3X-UI panel/subscription ports: the ports given, plus every
+# rule we labelled "3X-UI Panel" (the port may have changed since it was opened).
+# Never touches 22/80/443 or the SSH port.
+# Usage: close_xui_ufw_ports SSH_PORT [PORT ...]   (empty values ignored)
+close_xui_ufw_ports() {
+    local ssh_port="$1" p
+    shift
+    local ports=("$@")
+    local labelled
+    labelled=$(ufw_tcp_ports_with_comment "3X-UI Panel")
+    while IFS= read -r p; do
+        [[ -n "$p" ]] && ports+=("$p")
+    done <<< "$labelled"
+    for p in "${ports[@]}"; do
+        [[ -n "$p" ]] || continue
+        if [[ "$p" == "80" || "$p" == "443" || "$p" == "22" || "$p" == "$ssh_port" ]]; then
+            continue
+        fi
+        ufw_close_tcp_port "$p" "3X-UI panel/subscription"
+    done
 }
 
 setup_fail2ban() {

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Update exit server configuration from latest codebase
-# Run: ./setup.sh update-exit [--upgrade] [--enable-warp|--disable-warp] [--keep-3xui]
+# Run: ./setup.sh update-exit [--upgrade] [--enable-warp|--disable-warp] [--keep-3xui|--purge-3xui]
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/common.sh"
@@ -15,7 +15,7 @@ source "$SCRIPT_DIR/lib/caddy.sh"
 XRAY_CONFIG="/usr/local/etc/xray/config.json"
 
 main() {
-    local upgrade=false skip_ssh=false enable_warp=false disable_warp=false keep_3xui=false
+    local upgrade=false skip_ssh=false enable_warp=false disable_warp=false keep_3xui=false purge_3xui=false
     for arg in "$@"; do
         case "$arg" in
             --upgrade) upgrade=true ;;
@@ -23,9 +23,14 @@ main() {
             --enable-warp) enable_warp=true ;;
             --disable-warp) disable_warp=true ;;
             --keep-3xui) keep_3xui=true ;;
+            --purge-3xui) purge_3xui=true ;;
         esac
     done
 
+    if [[ "$keep_3xui" == true && "$purge_3xui" == true ]]; then
+        log_error "--keep-3xui and --purge-3xui are mutually exclusive"
+        exit 1
+    fi
     if [[ "$enable_warp" == true && "$disable_warp" == true ]]; then
         log_error "--enable-warp and --disable-warp are mutually exclusive"
         exit 1
@@ -155,7 +160,11 @@ main() {
             log_warn "3X-UI panel kept (--keep-3xui): it is no longer upgraded or checked by these scripts."
             log_warn "  Its port stays open in UFW. Remove it with a plain './setup.sh update-exit'."
         else
-            purge_3xui_panel "$ssh_port"
+            if [[ "$purge_3xui" == true ]]; then
+                purge_3xui_panel "$ssh_port" force
+            else
+                purge_3xui_panel "$ssh_port"
+            fi
         fi
     fi
 

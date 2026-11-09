@@ -177,7 +177,7 @@ check_ram_free() {
 
 # 3X-UI older than the pinned XUI_VERSION (common.sh) → WARN: the pin is what closes
 # the published v3.x advisories (#53), and update-* without --upgrade never moves the
-# panel. $1 = the update command to suggest (update-exit / update-relay).
+# panel. $1 = the update command to suggest (update-relay; exit has no panel).
 # Returns 0=OK (or nothing to compare), 1=WARN.
 check_xui_version() {
     local update_cmd="$1"
