@@ -167,12 +167,7 @@ main() {
     # --- Step 5: Install and configure 3X-UI ---
     log_info "=== 3X-UI Setup ==="
 
-    if [[ -n "$selfsteal_domain" ]]; then
-        install_3xui true  # skip port 80 cleanup — Caddy needs it
-    else
-        install_3xui
-    fi
-
+    install_3xui
     configure_3xui "$panel_port" "$panel_path" "$admin_user" "$admin_pass"
 
     # Configure subscription + SelfSteal-specific settings

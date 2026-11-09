@@ -9,6 +9,12 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "unknown")
 
+# Pinned 3X-UI release (both roles). install.sh is pulled from the SAME tag (not
+# master), so the installer behaviour in lib/3xui.sh is the one verified against.
+# v3.11.0 is the first release that closes all published advisories against v3.x
+# (issue #53). Lives here, not in 3xui.sh, so selfcheck can compare against it.
+XUI_VERSION="v3.11.0"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -276,6 +282,19 @@ update_system() {
         return 1
     fi
     log_ok "System updated"
+}
+
+# Print the installed 3X-UI panel version without a leading "v" (e.g. "3.11.0"), or
+# nothing if the binary is missing / prints no version. `x-ui -v` on the BINARY
+# (not the /usr/bin/x-ui menu script) prints config.GetPanelVersion(): the bare
+# version, or "dev+<commit>" for dev builds.
+xui_installed_version() {
+    local bin="${XUI_MAIN_FOLDER:-/usr/local/x-ui}/x-ui" out=""
+    [[ -x "$bin" ]] || return 0
+    out=$("$bin" -v 2>/dev/null) || true
+    if [[ "$out" =~ (dev\+[0-9a-zA-Z]+|v?[0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*) ]]; then
+        printf '%s' "${BASH_REMATCH[1]#v}"
+    fi
 }
 
 validate_domain() {

@@ -16,10 +16,8 @@ XUI_DB="/etc/x-ui/x-ui.db"
 # and 3xui.sh (relay) use the same values. This prevents mismatch between
 # relay outbound scMaxEachPostBytes and exit inbound cap.
 
-# Pinned 3X-UI release. install.sh is pulled from the SAME tag (not master), so the
-# installer behaviour below is the one verified against. v3.11.0 is the first
-# release that closes all published advisories against v3.x (issue #53).
-XUI_VERSION="v3.11.0"
+# XUI_VERSION (the pinned 3X-UI release) and xui_installed_version live in
+# common.sh — selfcheck compares against them without pulling in this module.
 
 # Run the pinned 3X-UI install.sh non-interactively. Same call for a fresh install
 # and for an upgrade of an already-configured panel (install.sh skips the
@@ -49,14 +47,40 @@ XUI_VERSION="v3.11.0"
 # keeps stdin a non-TTY so it never falls back to prompting, even when setup.sh
 # runs in a terminal; on our path (SSL none, SQLite) every read in install.sh is
 # behind the NONINTERACTIVE guard.
+#
+# install.sh is downloaded to a temp file first (curl -f + retries + non-empty
+# check) instead of `bash <(curl -Ls …)`: that form ran an empty or HTML-error body
+# as a "successful" no-op install. After the run the binary's own version must equal
+# XUI_VERSION — otherwise we'd go on to write a DB the code wasn't verified against.
 run_3xui_installer() {
-    XUI_NONINTERACTIVE=1 XUI_SSL_MODE=none XUI_DB_TYPE=sqlite XUI_ENABLE_FAIL2BAN=false \
+    local tmp installed
+    local url="https://raw.githubusercontent.com/mhsanaei/3x-ui/${XUI_VERSION}/install.sh"
+
+    tmp=$(mktemp "${TMPDIR:-/tmp}/3x-ui-install.XXXXXX")
+    if ! curl -fsSL --retry 3 --retry-delay 2 -o "$tmp" "$url" || [[ ! -s "$tmp" ]]; then
+        rm -f "$tmp"
+        log_error "Failed to download 3X-UI ${XUI_VERSION} installer: $url"
+        exit 1
+    fi
+
+    if ! XUI_NONINTERACTIVE=1 XUI_SSL_MODE=none XUI_DB_TYPE=sqlite XUI_ENABLE_FAIL2BAN=false \
         XUI_SERVER_IP="${XUI_SERVER_IP:-}" \
-        bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/${XUI_VERSION}/install.sh") \
-        "${XUI_VERSION}" < /dev/null
+        bash "$tmp" "${XUI_VERSION}" < /dev/null; then
+        rm -f "$tmp" "$XUI_INSTALL_RESULT"
+        log_error "3X-UI ${XUI_VERSION} installer failed (see output above)"
+        exit 1
+    fi
+    rm -f "$tmp"
     # install.sh writes the panel credentials + its "install" API token in plaintext
     # here (for cloud-init/MOTD). We never read it; the token is revoked separately.
     rm -f "$XUI_INSTALL_RESULT"
+
+    installed=$(xui_installed_version)
+    if [[ "$installed" != "${XUI_VERSION#v}" ]]; then
+        log_error "3X-UI version mismatch after install: expected ${XUI_VERSION#v}, binary reports '${installed:-none}'"
+        exit 1
+    fi
+    log_ok "3X-UI binary version ${installed} matches the pin"
 }
 
 # install.sh (v3.11) mints admin-scope API tokens for its own summary: "install" on a
@@ -98,20 +122,13 @@ revoke_installer_api_tokens() {
     fi
 }
 
+# No UFW juggling for port 80 here any more: with XUI_SSL_MODE=none the installer
+# never runs ACME. SelfSteal gets :80 from setup_security (80:Caddy-ACME), and the
+# old `ufw delete allow 80/tcp` could even drop that rule on a --force re-run.
 install_3xui() {
-    local skip_acme_port="${1:-false}"
-
     log_info "Installing 3X-UI panel..."
 
-    # Open port 80 temporarily — the installer uses it for Let's Encrypt SSL cert
-    ufw allow 80/tcp comment "ACME temp" > /dev/null 2>&1 || true
-
     run_3xui_installer
-
-    # Close temporary port 80 — unless Caddy needs it permanently (SelfSteal mode)
-    if [[ "$skip_acme_port" != true ]]; then
-        ufw delete allow 80/tcp > /dev/null 2>&1 || true
-    fi
 
     if command -v x-ui &> /dev/null; then
         log_ok "3X-UI installed"
