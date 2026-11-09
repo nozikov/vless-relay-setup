@@ -54,6 +54,12 @@ main() {
     # would silently create an empty DB at a missing path.
     backup_path="${XUI_DB}.bak.$(date +%Y%m%d-%H%M%S)"
     xui_db_backup "$backup_path"
+    # bootstrap_api_token may re-issue the token later in this run; a DB rollback
+    # would bring back the old api_tokens row, so the plaintext file has to roll
+    # back with it or vpn/selfcheck lose API access until the next update.
+    if [[ -f "$XUI_API_TOKEN_FILE" ]]; then
+        install -m 0600 "$XUI_API_TOKEN_FILE" "${backup_path}.api-token"
+    fi
     log_ok "Database backup saved: $backup_path"
 
     # --- Step 2: Extract current values ---
@@ -290,7 +296,7 @@ main() {
     if systemctl is-active --quiet x-ui; then
         for _ in 1 2 3 4 5; do
             sleep 1
-            if ss -tln 2>/dev/null | grep -qE ':443\s'; then
+            if [[ -n "$(ss -tlnH 'sport = :443' 2>/dev/null)" ]]; then
                 xray_healthy=true
                 break
             fi
@@ -303,9 +309,12 @@ main() {
             log_error "Rollback failed: could not stop x-ui. Restore $backup_path manually"
             exit 1
         fi
+        if [[ -f "${backup_path}.api-token" ]]; then
+            install -m 0600 "${backup_path}.api-token" "$XUI_API_TOKEN_FILE"
+        fi
         x-ui start
         sleep 3
-        if systemctl is-active --quiet x-ui && ss -tln 2>/dev/null | grep -qE ':443\s'; then
+        if systemctl is-active --quiet x-ui && [[ -n "$(ss -tlnH 'sport = :443' 2>/dev/null)" ]]; then
             log_ok "Previous database restored, 3X-UI is running"
         else
             log_error "Rollback also failed. Check: x-ui log"
