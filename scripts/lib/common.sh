@@ -82,6 +82,32 @@ validate_ip() {
     [[ "$ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]
 }
 
+# Returns 0 if the IPv4 literal is in a range xray-core's freedom outbound blocks
+# by default since 26.10 (geodata.GetPrivateIPMatcher, IPv4 part): RFC1918,
+# CGNAT 100.64/10, loopback, link-local, benchmarking, documentation, multicast,
+# reserved. Non-IPv4 input (domain, IPv6) → 1.
+is_private_ipv4() {
+    local ip="$1" a b c d n
+    [[ "$ip" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+    a=$((10#${BASH_REMATCH[1]})); b=$((10#${BASH_REMATCH[2]}))
+    c=$((10#${BASH_REMATCH[3]})); d=$((10#${BASH_REMATCH[4]}))
+    (( a <= 255 && b <= 255 && c <= 255 && d <= 255 )) || return 1
+    n=$(( (a << 24) | (b << 16) | (c << 8) | d ))
+    # base/prefix pairs
+    local range base prefix mask
+    for range in 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 \
+                 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.52.193.0/24 \
+                 192.88.99.2/32 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 \
+                 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4; do
+        prefix="${range#*/}"
+        IFS=. read -r a b c d <<< "${range%/*}"
+        base=$(( (a << 24) | (b << 16) | (c << 8) | d ))
+        mask=$(( (0xFFFFFFFF << (32 - prefix)) & 0xFFFFFFFF ))
+        (( (n & mask) == base )) && return 0
+    done
+    return 1
+}
+
 validate_uuid() {
     local uuid="$1"
     [[ "$uuid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]
