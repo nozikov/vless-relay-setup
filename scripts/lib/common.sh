@@ -236,18 +236,45 @@ configure_apt_lock_timeout() {
     log_ok "apt dpkg lock timeout set to 300s"
 }
 
+# `apt-get update` with retries. DPkg::Lock::Timeout only covers the dpkg frontend
+# lock; the lists lock (/var/lib/apt/lists/lock), held by apt-daily on a VM's first
+# boot, still fails `apt-get update` immediately. Retry up to 30 × 10s (~5 min) —
+# also covers a transient mirror error. Use this for EVERY `apt-get update` in
+# scripts/. Returns 1 when all attempts failed (callers run under set -e).
+apt_update_retry() {
+    local attempt max_attempts=30
+    configure_apt_lock_timeout
+    for ((attempt = 1; attempt <= max_attempts; attempt++)); do
+        if apt-get update -qq; then
+            return 0
+        fi
+        if ((attempt < max_attempts)); then
+            log_warn "apt-get update failed (attempt ${attempt}/${max_attempts}; apt lists lock held by apt-daily?) — retrying in 10s"
+            sleep 10
+        fi
+    done
+    log_error "apt-get update failed after ${max_attempts} attempts"
+    return 1
+}
+
 install_dependencies() {
     log_info "Installing dependencies..."
-    configure_apt_lock_timeout
-    apt-get update -qq
+    apt_update_retry || return 1
     apt-get install -y -qq curl wget unzip jq openssl cron socat git sqlite3 > /dev/null 2>&1
     log_ok "Dependencies installed"
 }
 
 update_system() {
+    local out
     log_info "Updating system..."
-    configure_apt_lock_timeout
-    apt-get update -qq && apt-get upgrade -y -qq > /dev/null 2>&1
+    # Separate statements, not `update && upgrade`: set -e ignores a failure in a
+    # non-final element of an && list, which used to end in "System updated".
+    apt_update_retry || return 1
+    if ! out=$(apt-get upgrade -y -qq 2>&1); then
+        printf '%s\n' "$out" | tail -n 20
+        log_error "apt-get upgrade failed — fix apt (see above), then re-run"
+        return 1
+    fi
     log_ok "System updated"
 }
 

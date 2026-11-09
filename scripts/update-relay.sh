@@ -154,7 +154,8 @@ main() {
 
         if [[ "$is_selfsteal" == true ]]; then
             log_info "Upgrading Caddy..."
-            apt-get update -qq && apt-get install -y -qq caddy > /dev/null 2>&1
+            apt_update_retry
+            apt-get install -y -qq caddy > /dev/null 2>&1
             log_ok "Caddy upgraded"
         fi
     fi
