@@ -82,7 +82,7 @@ configure_warp() {
     local _i
     for _i in 1 2 3 4 5; do
         sleep 1
-        if ss -tln 2>/dev/null | grep -qE ":${WARP_PROXY_PORT}\s"; then
+        if [[ -n "$(ss -tlnH "sport = :${WARP_PROXY_PORT}" 2>/dev/null)" ]]; then
             log_ok "WARP socks5 listening on 127.0.0.1:${WARP_PROXY_PORT}"
             return 0
         fi

@@ -216,7 +216,7 @@ start_caddy() {
     log_info "Starting Caddy..."
 
     # Check port 80 availability
-    if ss -tlnp | grep -q ":80 "; then
+    if [[ -n "$(ss -tlnH "sport = :80" 2>/dev/null)" ]]; then
         local pid
         pid=$(ss -tlnp | grep ":80 " | grep -oP 'pid=\K[0-9]+' | head -1)
         log_warn "Port 80 is occupied by PID $pid"
