@@ -4,6 +4,10 @@
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 CADDY_SOCK="/dev/shm/caddy.sock"
+SUB_PROXY_UNIT="/etc/systemd/system/sub-proxy.service"
+# Links in here carry the exit UUID / Hysteria obfs password: root-only (issue #61).
+# The unit itself (0644, `systemctl show` for any user) holds no secrets.
+SUB_PROXY_ENV="/etc/sub-proxy/sub-proxy.env"
 
 install_caddy() {
     log_info "Installing Caddy..."
@@ -251,6 +255,58 @@ SVCEOF
     log_ok "systemd: ${service} will start after caddy"
 }
 
+# Write $SUB_PROXY_ENV (0600, atomic) from KEY=VALUE args. EnvironmentFile content
+# gets no %-specifier expansion, so values go in as-is (no %% escaping as in
+# Environment=). Single-quoted; a value with ' \ or a newline is refused.
+write_sub_proxy_env() {
+    local kv key val tmp
+    mkdir -p "$(dirname "$SUB_PROXY_ENV")"
+    tmp=$(mktemp "${SUB_PROXY_ENV}.XXXXXX")
+    chmod 0600 "$tmp"
+    for kv in "$@"; do
+        key="${kv%%=*}"; val="${kv#*=}"
+        if [[ "$val" == *"'"* || "$val" == *\\* || "$val" == *$'\n'* ]]; then
+            log_error "sub-proxy: unsupported character in ${key} value"
+            rm -f "$tmp"
+            return 1
+        fi
+        printf "%s='%s'\n" "$key" "$val" >> "$tmp"
+    done
+    mv -f "$tmp" "$SUB_PROXY_ENV"
+}
+
+write_sub_proxy_unit() {
+    cat > "$SUB_PROXY_UNIT" << SVCEOF
+[Unit]
+Description=Subscription proxy (appends extra links)
+After=x-ui.service
+
+[Service]
+Type=simple
+EnvironmentFile=${SUB_PROXY_ENV}
+ExecStart=/usr/bin/python3 /usr/local/bin/sub-proxy.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+}
+
+# Value of KEY from $SUB_PROXY_ENV, or from Environment= lines of a pre-v1.13.1
+# unit (there % was escaped as %%). Empty if unset.
+sub_proxy_env_get() {
+    local key="$1" line=""
+    if [[ -f "$SUB_PROXY_ENV" ]]; then
+        line=$(grep -m1 "^${key}=" "$SUB_PROXY_ENV") || true
+        line="${line#*=}"; line="${line#\'}"; line="${line%\'}"
+    elif [[ -f "$SUB_PROXY_UNIT" ]]; then
+        line=$(grep -m1 "^Environment=${key}=" "$SUB_PROXY_UNIT") || true
+        line="${line#Environment=*=}"; line="${line//%%/%}"
+    fi
+    printf '%s' "$line"
+}
+
 setup_sub_proxy() {
     local sub_port="$1"
     local cdn_vless_link="$2"
@@ -283,40 +339,20 @@ setup_sub_proxy() {
     fi
     install -m 0644 "$share_src" /etc/sub-proxy/share-page.html
 
-    # Escape % for systemd (% is a specifier prefix in unit files)
-    local escaped_link="${cdn_vless_link//%/%%}"
-    local escaped_link_asym="${cdn_vless_link_asym//%/%%}"
-    local escaped_direct="${direct_vless_link//%/%%}"
-    local escaped_hysteria="${hysteria_link//%/%%}"
-    local escaped_relay_extra="${relay_extra_encoded//%/%%}"
-
-    # Create systemd service
-    cat > /etc/systemd/system/sub-proxy.service << SVCEOF
-[Unit]
-Description=Subscription proxy (appends extra links)
-After=x-ui.service
-
-[Service]
-Type=simple
-Environment=SUB_UPSTREAM=http://127.0.0.1:${sub_port}
-Environment=CDN_VLESS_LINK=${escaped_link}
-Environment=CDN_VLESS_LINK_ASYM=${escaped_link_asym}
-Environment=DIRECT_VLESS_LINK=${escaped_direct}
-Environment=HYSTERIA_LINK=${escaped_hysteria}
-Environment=HYSTERIA_PORT=${hysteria_port}
-Environment=HYSTERIA_PORT_END=${hysteria_port_end}
-Environment=HYSTERIA_OBFS=${hysteria_obfs}
-Environment=CDN_DOMAIN=${cdn_domain}
-Environment=CDN_PATH=${cdn_path}
-Environment=RELAY_XHTTP_EXTRA=${escaped_relay_extra}
-Environment=SUB_PROXY_PORT=${proxy_port}
-ExecStart=/usr/bin/python3 /usr/local/bin/sub-proxy.py
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
+    write_sub_proxy_env \
+        "SUB_UPSTREAM=http://127.0.0.1:${sub_port}" \
+        "CDN_VLESS_LINK=${cdn_vless_link}" \
+        "CDN_VLESS_LINK_ASYM=${cdn_vless_link_asym}" \
+        "DIRECT_VLESS_LINK=${direct_vless_link}" \
+        "HYSTERIA_LINK=${hysteria_link}" \
+        "HYSTERIA_PORT=${hysteria_port}" \
+        "HYSTERIA_PORT_END=${hysteria_port_end}" \
+        "HYSTERIA_OBFS=${hysteria_obfs}" \
+        "CDN_DOMAIN=${cdn_domain}" \
+        "CDN_PATH=${cdn_path}" \
+        "RELAY_XHTTP_EXTRA=${relay_extra_encoded}" \
+        "SUB_PROXY_PORT=${proxy_port}" || return 1
+    write_sub_proxy_unit
 
     systemctl daemon-reload
     systemctl enable sub-proxy
@@ -334,7 +370,7 @@ SVCEOF
 uninstall_sub_proxy() {
     systemctl stop sub-proxy 2>/dev/null || true
     systemctl disable sub-proxy 2>/dev/null || true
-    rm -f /etc/systemd/system/sub-proxy.service 2>/dev/null || true
+    rm -f "$SUB_PROXY_UNIT" "${SUB_PROXY_UNIT}".bak.* 2>/dev/null || true
     rm -f /usr/local/bin/sub-proxy.py 2>/dev/null || true
     rm -rf /etc/sub-proxy 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true

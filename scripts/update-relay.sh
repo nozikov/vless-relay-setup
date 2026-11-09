@@ -354,8 +354,7 @@ main() {
     fi
 
     # --- Step 5b: Update extra links in sub-proxy if active ---
-    local sub_proxy_service="/etc/systemd/system/sub-proxy.service"
-    if [[ -f "$sub_proxy_service" ]]; then
+    if [[ -f "$SUB_PROXY_UNIT" ]]; then
         log_info "Updating links in sub-proxy..."
 
         # Update sub-proxy script and config templates from codebase
@@ -368,21 +367,22 @@ main() {
         install -m 0644 "$script_dir/lib/templates/happ-routing-ru.json" /etc/sub-proxy/happ-routing-ru.json
         install -m 0644 "$script_dir/lib/templates/share-page.html" /etc/sub-proxy/share-page.html
 
-        # Read CDN params — prefer dedicated env vars, fall back to old URL parsing
-        local cdn_domain cdn_path
-        cdn_domain=$(grep -oP '(?<=CDN_DOMAIN=).+' "$sub_proxy_service") || true
-        cdn_path=$(grep -oP '(?<=CDN_PATH=).+' "$sub_proxy_service") || true
+        # Read params from the env file (v1.13.1+) or the old unit's Environment= lines.
+        # Pre-v1.4.0 units had no CDN_DOMAIN/CDN_PATH — parse them from the VLESS URL.
+        local cdn_domain cdn_path old_cdn_link
+        cdn_domain=$(sub_proxy_env_get CDN_DOMAIN)
+        cdn_path=$(sub_proxy_env_get CDN_PATH)
         if [[ -z "$cdn_domain" ]]; then
-            # Migration from old format: parse from VLESS URL
-            cdn_domain=$(grep 'CDN_VLESS_LINK=' "$sub_proxy_service" | grep -oP '(?<=@)[^:]+' | head -1) || true
-            cdn_path=$(grep 'CDN_VLESS_LINK=' "$sub_proxy_service" | grep -oP '(?<=path=%%2F)[^&]+' | head -1) || true
+            old_cdn_link=$(sub_proxy_env_get CDN_VLESS_LINK)
+            cdn_domain=$(printf '%s' "$old_cdn_link" | grep -oP '(?<=@)[^:]+' | head -1) || true
+            cdn_path=$(printf '%s' "$old_cdn_link" | grep -oP '(?<=path=%2F)[^&]+' | head -1) || true
         fi
 
         # Read Hysteria params from existing service, then override with CLI args
         local hy_port hy_port_end hy_obfs
-        hy_port=$(grep -oP '(?<=HYSTERIA_PORT=).+' "$sub_proxy_service") || true
-        hy_port_end=$(grep -oP '(?<=HYSTERIA_PORT_END=).+' "$sub_proxy_service") || true
-        hy_obfs=$(grep -oP '(?<=HYSTERIA_OBFS=).+' "$sub_proxy_service") || true
+        hy_port=$(sub_proxy_env_get HYSTERIA_PORT)
+        hy_port_end=$(sub_proxy_env_get HYSTERIA_PORT_END)
+        hy_obfs=$(sub_proxy_env_get HYSTERIA_OBFS)
 
         # CLI args override service file values (for adding/updating Hysteria)
         [[ -n "$arg_hy_port" ]] && hy_port="$arg_hy_port"
@@ -395,10 +395,6 @@ main() {
         fi
 
         if [[ -n "$cdn_domain" && -n "$cdn_path" ]] || [[ -n "$hy_port" && -n "$hy_obfs" ]]; then
-            # Read ExecStart from existing service file
-            local exec_start
-            exec_start=$(grep -oP '(?<=ExecStart=).+' "$sub_proxy_service") || true
-
             # CDN links — only when CDN Fallback is configured
             local cdn_vless_link="" cdn_vless_link_asym=""
             if [[ -n "$cdn_domain" && -n "$cdn_path" ]]; then
@@ -446,58 +442,60 @@ main() {
             local relay_extra_encoded
             relay_extra_encoded=$(url_quote "$extra_json")
 
-            # Escape % for systemd
-            local link_escaped="${cdn_vless_link//%/%%}"
-            local link_asym_escaped="${cdn_vless_link_asym//%/%%}"
-            local direct_escaped="${direct_vless_link//%/%%}"
-            local hysteria_escaped="${hysteria_link//%/%%}"
-            local relay_extra_escaped="${relay_extra_encoded//%/%%}"
-
             # Read existing service params
             local sub_upstream sub_proxy_port
-            sub_upstream=$(grep -oP '(?<=SUB_UPSTREAM=).+' "$sub_proxy_service") || true
-            sub_proxy_port=$(grep -oP '(?<=SUB_PROXY_PORT=).+' "$sub_proxy_service") || true
+            sub_upstream=$(sub_proxy_env_get SUB_UPSTREAM)
+            sub_proxy_port=$(sub_proxy_env_get SUB_PROXY_PORT)
 
-            # Backup before rewriting — restore on regen failure
-            local sub_proxy_backup
-            sub_proxy_backup="${sub_proxy_service}.bak.$(date +%Y%m%d-%H%M%S)"
-            cp "$sub_proxy_service" "$sub_proxy_backup"
+            # Backup unit + env file before rewriting (root-only tmp dir: both hold
+            # or held links with the exit UUID) — restore on regen failure.
+            local sub_proxy_bak had_env=false
+            sub_proxy_bak=$(mktemp -d /run/vpn-sub-proxy.XXXXXX)
+            cp -p "$SUB_PROXY_UNIT" "$sub_proxy_bak/unit"
+            if [[ -f "$SUB_PROXY_ENV" ]]; then
+                cp -p "$SUB_PROXY_ENV" "$sub_proxy_bak/env"
+                had_env=true
+            fi
 
-            # Rewrite entire service file (never sed — & in URLs breaks sed)
-            cat > "$sub_proxy_service" << SVCEOF
-[Unit]
-Description=Subscription proxy (appends extra links)
-After=x-ui.service
-
-[Service]
-Type=simple
-Environment=CDN_VLESS_LINK=${link_escaped}
-Environment=CDN_VLESS_LINK_ASYM=${link_asym_escaped}
-Environment=DIRECT_VLESS_LINK=${direct_escaped}
-Environment=HYSTERIA_LINK=${hysteria_escaped}
-Environment=HYSTERIA_PORT=${hy_port}
-Environment=HYSTERIA_PORT_END=${hy_port_end}
-Environment=HYSTERIA_OBFS=${hy_obfs}
-Environment=CDN_DOMAIN=${cdn_domain}
-Environment=CDN_PATH=${cdn_path}
-Environment=RELAY_XHTTP_EXTRA=${relay_extra_escaped}
-Environment=SUB_UPSTREAM=${sub_upstream}
-Environment=SUB_PROXY_PORT=${sub_proxy_port}
-ExecStart=${exec_start}
-Restart=on-failure
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
+            # Rewrite both files entirely (never sed — & in URLs breaks sed)
+            if ! write_sub_proxy_env \
+                "CDN_VLESS_LINK=${cdn_vless_link}" \
+                "CDN_VLESS_LINK_ASYM=${cdn_vless_link_asym}" \
+                "DIRECT_VLESS_LINK=${direct_vless_link}" \
+                "HYSTERIA_LINK=${hysteria_link}" \
+                "HYSTERIA_PORT=${hy_port}" \
+                "HYSTERIA_PORT_END=${hy_port_end}" \
+                "HYSTERIA_OBFS=${hy_obfs}" \
+                "CDN_DOMAIN=${cdn_domain}" \
+                "CDN_PATH=${cdn_path}" \
+                "RELAY_XHTTP_EXTRA=${relay_extra_encoded}" \
+                "SUB_UPSTREAM=${sub_upstream}" \
+                "SUB_PROXY_PORT=${sub_proxy_port}"; then
+                rm -rf "$sub_proxy_bak"
+                exit 1
+            fi
+            write_sub_proxy_unit
             systemctl daemon-reload
             systemctl restart sub-proxy
             sleep 2
             if systemctl is-active --quiet sub-proxy; then
-                log_ok "Sub-proxy updated"
+                log_ok "Sub-proxy updated (links in $SUB_PROXY_ENV, mode 0600)"
+                rm -rf "$sub_proxy_bak"
+                # Backups of pre-v1.13.1 units sit world-readable next to the unit,
+                # with the links (exit UUID) inside. Regenerable — drop them.
+                if compgen -G "${SUB_PROXY_UNIT}.bak.*" >/dev/null; then
+                    rm -f "${SUB_PROXY_UNIT}".bak.*
+                    log_info "Removed old sub-proxy.service backups (they exposed links to all users)"
+                fi
             else
                 log_warn "Sub-proxy failed to start, restoring backup..."
-                cp "$sub_proxy_backup" "$sub_proxy_service"
+                cp -p "$sub_proxy_bak/unit" "$SUB_PROXY_UNIT"
+                if [[ "$had_env" == true ]]; then
+                    cp -p "$sub_proxy_bak/env" "$SUB_PROXY_ENV"
+                else
+                    rm -f "$SUB_PROXY_ENV"
+                fi
+                rm -rf "$sub_proxy_bak"
                 systemctl daemon-reload
                 systemctl restart sub-proxy || true
                 if systemctl is-active --quiet sub-proxy; then
