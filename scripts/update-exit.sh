@@ -158,7 +158,8 @@ main() {
     if xui_panel_installed; then
         if [[ "$keep_3xui" == true ]]; then
             log_warn "3X-UI panel kept (--keep-3xui): it is no longer upgraded or checked by these scripts."
-            log_warn "  Its port stays open in UFW. Remove it with a plain './setup.sh update-exit'."
+            log_warn "  Its port stays open in UFW (plain HTTP admin) and installer API tokens are no longer revoked."
+            log_warn "  Remove it with a plain './setup.sh update-exit'."
         else
             if [[ "$purge_3xui" == true ]]; then
                 purge_3xui_panel "$ssh_port" force
@@ -282,7 +283,7 @@ main() {
 
     local security_args=()
     [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
-    security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
+    security_args+=(--soft-ssh --ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
     if [[ "$is_selfsteal" == true ]]; then
         security_args+=(80:Caddy-ACME)
     fi

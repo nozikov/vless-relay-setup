@@ -518,7 +518,7 @@ SVCEOF
 
     local security_args=()
     [[ "$skip_ssh" == true ]] && security_args+=("--skip-ssh")
-    security_args+=(--ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
+    security_args+=(--soft-ssh --ssh-port "$ssh_port" "$ssh_port":SSH 443:XRAY)
     if [[ "$is_selfsteal" == true ]]; then
         # Panel/subscription go through Caddy only — not opened, and the rules older
         # versions added are removed below (issue #40).
