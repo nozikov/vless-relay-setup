@@ -138,6 +138,8 @@ See `patch_3xui_relay_inbound()` and `create_3xui_relay_inbound()` in `3xui.sh`.
 
 `issue_domain_cert()` checks for existing valid cert before calling acme.sh. Without `--force`, acme.sh also checks its own cache. Uninstall preserves certs by default (`--purge-certs` to remove). This avoids Let's Encrypt rate limits (5 duplicate certs per 168h per domain set).
 
+`cleanup_acme_panel_leftovers` (`common.sh`; called by `purge_3xui_panel` and by uninstall without `--purge-certs`) removes what 3X-UI's installer left for the panel: IP-named acme.sh certs (short-lived LE IP certs) + `/root/cert/ip`, and the acme.sh cron only if no other cert is left — a plain relay's domain cert keeps renewing. Never call it while a panel may still use `/root/cert/ip`.
+
 ### Synchronous Migration: Vision Replaces XHTTP on Exit (v1.10.0+)
 
 Exit's main inbound and relay's `proxy-exit` outbound must be on the same transport: either both XHTTP (≤v1.9.x) or both RAW + xtls-rprx-vision (v1.10.0+). Cannot mix.
@@ -168,7 +170,9 @@ Both update scripts detect SelfSteal mode (by checking if `dest` contains `caddy
 
 The inbound patch in `update-relay.sh` runs between `x-ui stop` and `x-ui start` — same window as the template write. This is safe because x-ui is stopped (no in-memory overwrite risk).
 
-`update-relay.sh` also auto-updates CDN VLESS links in sub-proxy if active. It reads exit Reality params from the relay template, extracts CDN domain/path from the sub-proxy service file env vars (`CDN_DOMAIN`, `CDN_PATH`), regenerates both symmetric and asymmetric links, and rewrites the entire service file (not sed — `&` in URLs breaks sed replacements). For migration from pre-v1.4.0, it falls back to parsing the old VLESS URL if dedicated env vars are absent.
+`update-relay.sh` also auto-updates CDN VLESS links in sub-proxy if active. It reads exit Reality params from the relay template, reads CDN domain/path etc. via `sub_proxy_env_get` (`caddy.sh`: the env file, or `Environment=` lines of a pre-v1.13.1 unit with `%%` unescaped), regenerates both symmetric and asymmetric links, and rewrites the env file and the unit entirely (not sed — `&` in URLs breaks sed replacements). Backup of both goes to a `mktemp -d /run/vpn-sub-proxy.*` dir (restored if sub-proxy doesn't come up); after success the old world-readable `sub-proxy.service.bak.*` are deleted. For migration from pre-v1.4.0, it falls back to parsing the old VLESS URL if dedicated env vars are absent.
+
+After the rollback point update-relay keeps the last 5 `x-ui.db.bak.*` (with their `.api-token` siblings) and update-exit the last 5 `config.json.bak.*` (`prune_backups`, `common.sh`).
 
 ### Dest Format Convention
 
@@ -184,7 +188,7 @@ CDN Fallback adds an XHTTP inbound on exit (localhost-only, packet-up mode) and 
 
 **Asymmetric mode**: upload goes through Cloudflare CDN, download bypasses CDN via Reality direct to exit (reuses the main XHTTP inbound). Configured via `downloadSettings` in the client's `extra` parameter. Both symmetric and asymmetric links are included in subscriptions.
 
-**Sub-proxy** on relay intercepts subscription responses. For browser requests (`Accept: text/html`), it passes through 3X-UI's HTML page with QR codes. For app requests (base64), it appends CDN VLESS links (asymmetric first, then symmetric as fallback). Environment: `CDN_VLESS_LINK`, `CDN_VLESS_LINK_ASYM`, `CDN_DOMAIN`, `CDN_PATH`, `SUB_UPSTREAM`, `SUB_PROXY_PORT` (all with `%%` escaping for systemd where needed).
+**Sub-proxy** on relay intercepts subscription responses. For browser requests (`Accept: text/html`), it passes through 3X-UI's HTML page with QR codes. For app requests (base64), it appends CDN VLESS links (asymmetric first, then symmetric as fallback). Environment: `CDN_VLESS_LINK`, `CDN_VLESS_LINK_ASYM`, `DIRECT_VLESS_LINK`, `HYSTERIA_*`, `CDN_DOMAIN`, `CDN_PATH`, `RELAY_XHTTP_EXTRA`, `SUB_UPSTREAM`, `SUB_PROXY_PORT` — in `/etc/sub-proxy/sub-proxy.env` (0600, `EnvironmentFile=`; since v1.13.1, #61). The links carry the exit UUID / obfs password; the 0644 unit holds no secrets (`Environment=` there was readable by everyone, also via `systemctl show`). Written by `write_sub_proxy_env` (atomic, single-quoted values, refuses `'` `\` newline) + `write_sub_proxy_unit`. No `%%` escaping: specifiers are expanded in unit files, not in EnvironmentFile content.
 
 **Caddy CDN routing**: uses `@cdn path /CDN_PATH*` matcher to route CDN requests to the local XHTTP inbound. No WebSocket-specific matchers needed — XHTTP uses standard HTTP POST/GET.
 
@@ -192,7 +196,7 @@ CDN Fallback adds an XHTTP inbound on exit (localhost-only, packet-up mode) and 
 
 **subURI**: 3X-UI setting that overrides the displayed subscription URL. Must include the full path with trailing content: `https://sub.domain/subPath/`. Without this, 3X-UI shows internal `http://127.0.0.1:port` links.
 
-**Service file rewriting**: Never use `sed` to modify sub-proxy.service — `&` in VLESS URLs is a sed special character. Always rewrite the entire file via heredoc.
+**Service file rewriting**: Never use `sed` to modify sub-proxy.env / sub-proxy.service — `&` in VLESS URLs is a sed special character. Always rewrite the entire file (`write_sub_proxy_env` / `write_sub_proxy_unit`).
 
 ### Caddy Unix Socket Permissions
 
@@ -240,7 +244,7 @@ xray-core 26.10+ (3X-UI v3.11 ships 26.10.x): a freedom outbound blocks private 
 **UFW / fail2ban (#58):** after `setup_ufw`, `prune_stale_ssh_ufw_rules` deletes our own SSH rules (comment exactly `SSH` / `SSH-fallback`, read from `ufw show added`) on ports other than the current SSH port (+22 in fallback mode) — only if sshd is confirmed listening on the SSH port, and never for a port sshd still listens on. Rules with other comments are the admin's and stay. In fallback mode (sshd still on 22) the fail2ban `[sshd]` jail gets `port = <ssh_port>,22`.
 
 `setup_ssh_hardening()` sequence (v1.12.0+, #54):
-1. Backup `sshd_config` (and our drop-in, if present) into a `mktemp -d /run/vpn-ssh-hardening.*` dir (tmpfs — no leftovers in `/etc/ssh` if interrupted), edit it + write the drop-in, then `sshd -t` (after `install -d /run/sshd`), then `sshd -T` must show `passwordauthentication no`, `kbdinteractiveauthentication no` (a password path too under `UsePAM yes`), `permitrootlogin` without-password/prohibit-password/no and the expected port among the `port` lines (extra ports → WARN); the error names the sshd_config.d file that overrides it. From the backup until that check passes a `trap … INT HUP TERM` puts the files back (an interrupted edit could otherwise leave no custom Port while the /run backup is lost on reboot). In update-* (`setup_security --soft-ssh`) a mismatch restores the files and continues WITHOUT hardening with a WARN instead of `exit 1` — XRAY is already reconfigured by then; setup-* keep the fatal exit. `sshd -T` without `-C` does not evaluate `Match` blocks. sshd -T only reads files, so this is checked before the restart. Invalid config or mismatch → restore `sshd_config` + drop-in (restored on re-runs, removed on first run), **no restart**, exit 1.
+1. Backup `sshd_config` (and our drop-in, if present) into a `mktemp -d /run/vpn-ssh-hardening.*` dir (tmpfs — no leftovers in `/etc/ssh` if interrupted), edit it + write the drop-in, then `sshd -t` (after `install -d /run/sshd`), then `sshd -T` must show `passwordauthentication no`, `kbdinteractiveauthentication no` (a password path too under `UsePAM yes`), `permitrootlogin` without-password/prohibit-password/no and the expected port among the `port` lines (extra ports → WARN); the error names the sshd_config.d file that overrides it. From the backup until that check passes a `trap … INT HUP TERM` puts the files back (an interrupted edit could otherwise leave no custom Port while the /run backup is lost on reboot). In update-* (`setup_security --soft-ssh`) a mismatch restores the files and continues WITHOUT hardening with a WARN instead of `exit 1` — XRAY is already reconfigured by then; setup-* keep the fatal exit. `sshd -T` without `-C` does not evaluate `Match` blocks — `_ssh_warn_match_overrides` scans `sshd_config` + `sshd_config.d/*.conf` for Match blocks setting PasswordAuthentication/KbdInteractiveAuthentication/ChallengeResponseAuthentication/PermitRootLogin `yes` and WARNs with the file (never fatal: our drop-in can't override a Match block). sshd -T only reads files, so this is checked before the restart. Invalid config or mismatch → restore `sshd_config` + drop-in (restored on re-runs, removed on first run), **no restart**, exit 1.
 2. If `ssh.socket` is active/enabled (Ubuntu 22.10+/24.04 socket activation — sshd ignores `Port` there): record socket active/enabled + `ssh.service` enabled, remove the migration drop-ins `ssh.service.d/00-socket.conf` (adds `Wants=ssh.socket` — without removal `systemctl restart ssh` brings the socket back) and `ssh.socket.d/addresses.conf` (backed up), `daemon-reload`, `disable --now` + **`mask`** `ssh.socket`, `enable ssh`. Any failure → rollback. To return to socket activation manually: `systemctl unmask ssh.socket && systemctl disable ssh && systemctl enable --now ssh.socket`.
 3. `restart ssh`, wait for **sshd** (not the socket) on the port. Not bound → rollback: restore config + our sshd drop-in + socket drop-ins, unmask, restore `ssh.service` enablement, stop sshd (sessions survive, `KillMode=process`), re-enable/start the socket as it was. UFW is never touched before this succeeds.
 
@@ -261,7 +265,7 @@ Every `apt-get update` in `scripts/` goes through `apt_update_retry` (common.sh)
 `scripts/selfcheck.sh` — auto-detect role (exit/relay по `/usr/local/etc/xray/config.json` vs `/etc/x-ui/x-ui.db`) + extended verify. Запускается auto в конце setup-* / update-* (заменил собой `verify_exit_server` / `verify_relay_server` callsites). Manual: `./setup.sh selfcheck`. Exit code 1 если есть FAIL.
 
 Три блока проверок:
-1. **Local services** (через `lib/verify.sh`): xray (exit) / x-ui (relay) / caddy/hysteria/warp-svc/sub-proxy running, ports listening (TCP + Hysteria UDP; `verify_port_listening` использует фильтр `ss -H "sport = :PORT"`, не `ss | grep -q` — SIGPIPE под pipefail давал ложный FAIL). Плюс `check_xui_version` (только relay): 3X-UI старше `XUI_VERSION` → WARN с подсказкой `update-relay --upgrade`. На exit x-ui не проверяется (с v1.13.0 его там нет)
+1. **Local services** (через `lib/verify.sh`): xray (exit) / x-ui (relay) / caddy/hysteria/warp-svc/sub-proxy running, ports listening (TCP + Hysteria UDP; `verify_port_listening` использует фильтр `ss -H "sport = :PORT"`, не `ss | grep -q` — SIGPIPE под pipefail давал ложный FAIL). Плюс `check_xui_loopback` (только SelfSteal relay, #61): `webListen` и, при `subDomain`, `subListen` в БД = `127.0.0.1` и живой сокет порта только на loopback, иначе WARN с подсказкой `update-relay`. Плюс `check_xui_version` (только relay): 3X-UI старше `XUI_VERSION` → WARN с подсказкой `update-relay --upgrade`. На exit x-ui не проверяется (с v1.13.0 его там нет)
 2. **System resources** (через `lib/selfcheck.sh`): cert expiry (<14 days = WARN, <7 = FAIL), disk >10% free, RAM >100MB free
 3. **Outside probes**: curl на собственный external IP (hairpin NAT) → должен вернуть selfsteal HTML; CDN external probe через Cloudflare если CDN_DOMAIN настроен. Hairpin не везде работает — graceful degrade на WARN, не FAIL.
 
@@ -325,7 +329,8 @@ HEAD-метод: `BaseHTTPRequestHandler` НЕ подавляет body для HE
 - Functions and variables: `snake_case`; exported/environment: `UPPER_CASE`
 - All function params declared `local` at top of function body
 - SQL string escaping: `xui_db_set()` handles it internally; direct `sqlite3` calls use `${var//\'/\'\'}`
-- JSON building: `jq -n -c` with `--arg`/`--argjson` parameters
+- JSON building: `jq -n -c`; string values via `--rawfile k <(printf '%s' "$v")`, numbers/non-secret JSON via `--argjson`
+- Secrets (UUIDs, subIds, keys, tokens, links) never on a child's argv — `/proc/*/cmdline` is world-readable. `printf` is a builtin (no exec): jq `--rawfile <(printf …)`, SQL on sqlite3 stdin (`sqlite3 "$XUI_DB" <<< "$sql"`), `url_quote` (python via stdin), `reality_public_key_from_private` (openssl via stdin, not `xray x25519 -i`). Known exception: `x-ui setting -password` in `configure_3xui` (3X-UI's own CLI, setup only)
 - Optional operations use `|| true`; fatal errors use `exit 1`
 - 4-space indentation
 - Git commits: conventional format (`fix:`, `feat:`, `docs:`), "why" not "what"
