@@ -83,7 +83,7 @@ A client subscription emits up to 5 channels. All share one UUID. Generation:
 
 All sourced via `BASH_SOURCE` from orchestration scripts:
 
-- `common.sh` — logging (`log_info/ok/warn/error`), `prompt_input`, `prompt_password`, validation (`validate_domain`, `check_domain_dns`), random generation, `PROJECT_VERSION` from `VERSION` file
+- `common.sh` — logging (`log_info/ok/warn/error`), `prompt_input`, `prompt_password`, validation (`validate_domain`, `check_domain_dns`), random generation, `PROJECT_VERSION` from `VERSION` file, `XUI_VERSION` (3X-UI pin) + `xui_installed_version`, `apt_update_retry`
 - `security.sh` — SSH hardening (custom port support), UFW, fail2ban
 - `caddy.sh` — Caddy installation, Caddyfile generation, static site content, systemd dependency, sub-proxy setup, uninstall (SelfSteal mode only)
 - `reality.sh` — Reality key generation, destination site selection
@@ -108,9 +108,11 @@ x-ui start         # Load fresh state from DB
 
 `xui_db_set()` in `3xui.sh` handles upsert for the `settings` table with automatic SQL escaping. Complex operations (inbounds) use direct `sqlite3` calls with manual escaping.
 
-**v3.x (since 1.11.0):** client/inbound *writes* go through the REST API (`lib/xui-api.sh`, Bearer token, CSRF-exempt `/panel/api/*`) so they populate v3's normalized `clients`+`client_inbounds` tables (the subscription server reads those — raw JSON-only writes 404, issue #44). The `x-ui stop`/`start` window is now used only for `settings`/`xrayTemplateConfig` DB-writes and `bootstrap_api_token`. Reads (`vpn list/link`, selfcheck) read the normalized `clients` table directly.
+**v3.x (since 1.11.0):** client/inbound *writes* go through the REST API (`lib/xui-api.sh`, Bearer token, CSRF-exempt `/panel/api/*`) so they populate v3's normalized `clients`+`client_inbounds` tables (the subscription server reads those — raw JSON-only writes 404, issue #44). The `x-ui stop`/`start` window is now used only for `settings`/`xrayTemplateConfig` DB-writes, `bootstrap_api_token` and `revoke_installer_api_tokens`. Reads (`vpn list/link`, selfcheck) read the normalized `clients` table directly.
 
-**API token storage (v3.3.1+, pinned v3.11.0):** `api_tokens.token` holds SHA-256(plaintext) — the panel hashes the presented Bearer and compares. `/etc/vpn-cli/api-token` keeps the plaintext. `bootstrap_api_token` decides plaintext vs hash by the `ApiTokensHash` row in `history_of_seeders` and sets `scope='admin'`/`expires_at=0` only if those columns exist, so it works on both v3.1.0 and v3.11.0 DBs. It runs on every update-relay (after `--upgrade` too) and re-issues the token if the row doesn't match — this is what repairs relays upgraded from v3.1.0. It also revokes the installer's own `install`/`cli-fallback` tokens (their plaintext lands in the setup log).
+**API token storage (v3.3.1+, pinned v3.11.0):** `api_tokens.token` holds SHA-256(plaintext) — the panel hashes the presented Bearer and compares. `/etc/vpn-cli/api-token` keeps the plaintext. `bootstrap_api_token` decides plaintext vs hash by the `ApiTokensHash` row in `history_of_seeders` and sets `scope='admin'`/`expires_at=0` only if those columns exist, so it works on both v3.1.0 and v3.11.0 DBs. It runs on every update-relay (after `--upgrade` too) and re-issues the token if the row doesn't match — this is what repairs relays upgraded from v3.1.0.
+
+**Installer tokens (both roles):** install.sh v3.11 mints admin tokens `install` (fresh DB) / `cli-fallback` (re-run that resets default creds), prints them to stdout (= our log) and writes `/etc/x-ui/install-result.env`. `revoke_installer_api_tokens` (`3xui.sh`, DB-write → inside the stop/start window) deletes exactly those names; called from `configure_3xui` (setup, both roles), update-relay's Step 5 window, and update-exit Step 4b (after `--upgrade`, or whenever such a token exists; restarts x-ui). `run_3xui_installer` deletes `install-result.env` right after the run.
 
 ### 3X-UI Inbound Normalization
 
@@ -129,7 +131,7 @@ See `patch_3xui_relay_inbound()` and `create_3xui_relay_inbound()` in `3xui.sh`.
 
 ### Interactive Installer Workarounds
 
-- **3X-UI installer** (pinned `XUI_VERSION=v3.11.0` in `3xui.sh`, install.sh from the same tag): always via `run_3xui_installer` — `XUI_NONINTERACTIVE=1 XUI_SSL_MODE=none XUI_DB_TYPE=sqlite XUI_ENABLE_FAIL2BAN=false XUI_SERVER_IP=… < /dev/null`. Since v3.6.0 install.sh replaces every prompt with env/defaults in non-interactive mode, so the old answers file (`/tmp/xui-answers`) is gone. `XUI_ENABLE_FAIL2BAN=false` keeps the installer from rewriting our fail2ban config (IP Limit jail + global `backend=systemd`). `XUI_SERVER_IP` replaces the "enter your IPv4" loop when IP detection fails (issue #52).
+- **3X-UI installer** (pinned `XUI_VERSION=v3.11.0` in `common.sh`, install.sh from the same tag): always via `run_3xui_installer`, which downloads install.sh with `curl -fsSL --retry 3` into a mktemp file (empty → abort), runs `bash "$tmp" "$XUI_VERSION"`, and afterwards requires `/usr/local/x-ui/x-ui -v` (prints bare `3.11.0`) == `XUI_VERSION` — mismatch → exit 1. No port-80 opening around it any more (SSL none → no ACME). Env: `XUI_NONINTERACTIVE=1 XUI_SSL_MODE=none XUI_DB_TYPE=sqlite XUI_ENABLE_FAIL2BAN=false XUI_SERVER_IP=… < /dev/null`. Since v3.6.0 install.sh replaces every prompt with env/defaults in non-interactive mode, so the old answers file (`/tmp/xui-answers`) is gone. `XUI_ENABLE_FAIL2BAN=false` keeps the installer from rewriting our fail2ban config (IP Limit jail + global `backend=systemd`). `XUI_SERVER_IP` replaces the "enter your IPv4" loop when IP detection fails (issue #52).
 - **XRAY installer**: Redirect `< /dev/null` to prevent stdin consumption from piped input.
 
 ### SSL Certificate Caching
@@ -209,20 +211,29 @@ Lifecycle:
 
 `setup_security()` accepts `--ssh-port PORT` flag. `setup_ssh_hardening()` modifies `sshd_config`, `setup_fail2ban()` configures the port in jail config, and UFW opens the custom port. Update scripts detect the current port via `grep '^Port ' /etc/ssh/sshd_config` with fallback to 22.
 
+`setup_ssh_hardening()` sequence (v1.12.0+, #54):
+1. Backup `sshd_config` into a `mktemp -d /run/vpn-ssh-hardening.*` dir (tmpfs — no leftovers in `/etc/ssh` if interrupted), edit it, then `sshd -t` (after `install -d /run/sshd`). Invalid config → restore, **no restart**, exit 1.
+2. If `ssh.socket` is active/enabled (Ubuntu 22.10+/24.04 socket activation — sshd ignores `Port` there): record socket active/enabled + `ssh.service` enabled, remove the migration drop-ins `ssh.service.d/00-socket.conf` (adds `Wants=ssh.socket` — without removal `systemctl restart ssh` brings the socket back) and `ssh.socket.d/addresses.conf` (backed up), `daemon-reload`, `disable --now` + **`mask`** `ssh.socket`, `enable ssh`. Any failure → rollback. To return to socket activation manually: `systemctl unmask ssh.socket && systemctl disable ssh && systemctl enable --now ssh.socket`.
+3. `restart ssh`, wait for **sshd** (not the socket) on the port. Not bound → rollback: restore config + drop-ins, unmask, restore `ssh.service` enablement, stop sshd (sessions survive, `KillMode=process`), re-enable/start the socket as it was. UFW is never touched before this succeeds.
+
 ### Setup Guard
 
 `setup-exit.sh` and `setup-relay.sh` check for existing configuration before running. If found, they refuse and suggest the update command instead. `--force` overrides the check for intentional full reinstall.
 
 ### Logging
 
-All setup/update scripts wrap `main` with `tee` to `/var/log/vpn-setup-<script>-<timestamp>.log`. Exit code preserved via `PIPESTATUS[0]`.
+All setup/update scripts wrap `main` with `tee` to `/var/log/vpn-setup-<script>-<timestamp>.log`. Exit code preserved via `PIPESTATUS[0]`. The log is pre-created `install -m 0600 /dev/null "$LOG_FILE"` before `tee` (all four scripts) — it captures 3X-UI installer output with credentials.
+
+### apt
+
+Every `apt-get update` in `scripts/` goes through `apt_update_retry` (common.sh): up to 30 × 10s, because `DPkg::Lock::Timeout` (written by `configure_apt_lock_timeout`) covers only the dpkg lock, not `/var/lib/apt/lists/lock` held by apt-daily on a fresh VM. Never chain `apt-get update && apt-get …` — set -e ignores a failure in a non-final element of `&&`.
 
 ### Selfcheck (issue #22, v1.10.0+)
 
 `scripts/selfcheck.sh` — auto-detect role (exit/relay по `/usr/local/etc/xray/config.json` vs `/etc/x-ui/x-ui.db`) + extended verify. Запускается auto в конце setup-* / update-* (заменил собой `verify_exit_server` / `verify_relay_server` callsites). Manual: `./setup.sh selfcheck`. Exit code 1 если есть FAIL.
 
 Три блока проверок:
-1. **Local services** (через `lib/verify.sh`): xray/x-ui/caddy/hysteria/warp-svc/sub-proxy running, ports listening
+1. **Local services** (через `lib/verify.sh`): xray/x-ui/caddy/hysteria/warp-svc/sub-proxy running, ports listening (TCP + Hysteria UDP; `verify_port_listening` использует фильтр `ss -H "sport = :PORT"`, не `ss | grep -q` — SIGPIPE под pipefail давал ложный FAIL). Плюс `check_xui_version`: 3X-UI старше `XUI_VERSION` → WARN с подсказкой `update-exit|update-relay --upgrade`
 2. **System resources** (через `lib/selfcheck.sh`): cert expiry (<14 days = WARN, <7 = FAIL), disk >10% free, RAM >100MB free
 3. **Outside probes**: curl на собственный external IP (hairpin NAT) → должен вернуть selfsteal HTML; CDN external probe через Cloudflare если CDN_DOMAIN настроен. Hairpin не везде работает — graceful degrade на WARN, не FAIL.
 
