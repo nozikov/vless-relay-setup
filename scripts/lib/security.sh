@@ -53,6 +53,12 @@ _ssh_hardening_rollback() {
         if [[ "$socket_was_active" == true ]]; then
             systemctl start ssh.socket || true
         fi
+        # The stop above also took down a standalone sshd (socket merely enabled,
+        # or a leftover socket next to a running service) — bring it back, or the
+        # host ends up with no SSH listener at all.
+        if [[ "$service_was_active" == true ]]; then
+            systemctl start "$sshd_service" || true
+        fi
     else
         systemctl restart "$sshd_service" || true
     fi
@@ -75,6 +81,7 @@ setup_ssh_hardening() {
     local backup_dir=""
     local bound=false
     local socket_was_active=false socket_was_enabled=false service_was_enabled=false
+    local service_was_active=false
     local socket_switched=false
     local dropin
 
@@ -139,6 +146,7 @@ setup_ssh_hardening() {
     if [[ "$socket_was_active" == true || "$socket_was_enabled" == true ]]; then
         [[ "$(systemctl is-enabled "${sshd_service}.service" 2>/dev/null || true)" == "enabled" ]] && \
             service_was_enabled=true
+        systemctl is-active --quiet "${sshd_service}.service" 2>/dev/null && service_was_active=true
         log_info "ssh.socket (socket activation) detected — switching to ${sshd_service}.service so Port takes effect"
         socket_switched=true
         for dropin in "${SSH_SOCKET_DROPINS[@]}"; do
