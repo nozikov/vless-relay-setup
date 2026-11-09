@@ -148,6 +148,25 @@ reality_public_key_from_private() {
     printf '%s' "$pub"
 }
 
+# Keep the newest KEEP timestamped backups "<prefix><YYYYmmdd-HHMMSS>" (glob order
+# is lexical = chronological), delete older ones together with their
+# "<backup>.api-token" sibling (update-relay). Call only after the run succeeded,
+# so the current rollback target is never pruned.
+prune_backups() {
+    local prefix="$1" keep="${2:-5}" f n i
+    local all=()
+    for f in "${prefix}"*; do
+        [[ -f "$f" && "$f" != *.api-token ]] || continue
+        all+=("$f")
+    done
+    n=$(( ${#all[@]} - keep ))
+    (( n > 0 )) || return 0
+    for (( i = 0; i < n; i++ )); do
+        rm -f "${all[i]}" "${all[i]}.api-token"
+    done
+    log_info "Removed ${n} old backup(s) ${prefix}* (kept ${keep})"
+}
+
 generate_random_port() {
     local excluded_ports=("$@")
     local port

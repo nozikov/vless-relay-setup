@@ -226,6 +226,7 @@ main() {
         log_ok "Previous config restored, XRAY is running"
         exit 1
     fi
+    prune_backups "${XRAY_CONFIG}.bak." 5
 
     # Stop WARP only AFTER successful xray restart — otherwise a config rollback
     # leaves xray referencing a disconnected WARP socks5 listener.
