@@ -525,5 +525,7 @@ SVCEOF
 }
 
 LOG_FILE="/var/log/vpn-setup-$(basename "$0" .sh)-$(date +%Y%m%d-%H%M%S).log"
+# Root-only: the log carries installer output (panel credentials, API token).
+install -m 0600 /dev/null "$LOG_FILE"
 main "$@" 2>&1 | tee "$LOG_FILE"
 exit "${PIPESTATUS[0]}"
