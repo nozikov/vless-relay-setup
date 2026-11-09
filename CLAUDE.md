@@ -55,7 +55,7 @@ Setup order is always exit first, then relay (relay needs exit server's keys/UUI
 ### Subscription Channels (full SelfSteal + CDN + Hysteria deployment)
 
 A client subscription emits up to 5 channels. All share one UUID. Generation:
-- **Channel 1** (Relay) is rendered by 3X-UI's subscription generator from the relay inbound. Sub-proxy injects `extra=` via `RELAY_XHTTP_EXTRA` env (3X-UI doesn't emit it itself).
+- **Channel 1** (Relay) is rendered by 3X-UI's subscription generator from the relay inbound. Sub-proxy merges `RELAY_XHTTP_EXTRA` env into the link's `extra=` (`patch_relay_vless()`): 3X-UI v2.x emitted no `extra`, v3.x emits only `extra={"mode":"auto"}` + top-level `mode` + empty `host=`. Our keys win, `mode` is kept only top-level (xray-core `SplitHTTPConfig.Build()` overwrites `extra.mode` with it anyway), empty `host=` is dropped (issue #49).
 - **Channels 2-5** are appended by sub-proxy from systemd env vars (`DIRECT_VLESS_LINK`, `CDN_VLESS_LINK_ASYM`, `CDN_VLESS_LINK`, `HYSTERIA_LINK`).
 
 | # | Channel | Client connects to | Wire protocol | Server-side path |
