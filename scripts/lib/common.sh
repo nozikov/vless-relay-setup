@@ -9,7 +9,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PROJECT_VERSION=$(cat "$REPO_ROOT/VERSION" 2>/dev/null || echo "unknown")
 
-# Pinned 3X-UI release (both roles). install.sh is pulled from the SAME tag (not
+# Pinned 3X-UI release (relay; exit has no panel since v1.13.0). install.sh is pulled from the SAME tag (not
 # master), so the installer behaviour in lib/3xui.sh is the one verified against.
 # v3.11.0 is the first release that closes all published advisories against v3.x
 # (issue #53). Lives here, not in 3xui.sh, so selfcheck can compare against it.

@@ -178,7 +178,11 @@ main() {
 
         # Bind panel + subscription server to localhost: reachable only through
         # Caddy (issue #40); their ports are never opened in UFW in SelfSteal.
-        xui_bind_loopback
+        if [[ -n "$sub_domain" ]]; then
+            xui_bind_loopback with-sub
+        else
+            xui_bind_loopback
+        fi
         # Clear panel cert — guarantees plain HTTP to Caddy reverse proxy
         # regardless of whether sub_domain is set, and even if the 3X-UI
         # installer sets an IP cert on future versions
@@ -333,6 +337,10 @@ main() {
         security_args+=("$sub_port:Subscription")
     fi
     setup_security "${security_args[@]}"
+    if [[ -n "$selfsteal_domain" ]]; then
+        # --force over an older install: drop panel rules it may have left open
+        close_xui_ufw_ports "$ssh_port" "$panel_port"
+    fi
 
     # Install vpn CLI symlink (issue #23)
     install_vpn_cli_symlink "$SCRIPT_DIR/vpn"

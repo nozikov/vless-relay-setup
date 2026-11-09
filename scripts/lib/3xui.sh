@@ -3,7 +3,7 @@
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/xui-api.sh"
-# ufw_close_tcp_port (purge_3xui_panel, close_relay_panel_ports)
+# close_xui_ufw_ports / ufw_close_tcp_port (purge_3xui_panel)
 source "$(dirname "${BASH_SOURCE[0]}")/security.sh"
 
 XUI_BIN="${XUI_MAIN_FOLDER:-/usr/local/x-ui}/x-ui"
@@ -157,12 +157,29 @@ xui_panel_installed() {
 # closed: the port from the DB's webPort plus any rule carrying our "3X-UI Panel"
 # comment — never 80/443/SSH. Idempotent: on a box without a panel it is a no-op.
 # $1 = SSH port (protected from the UFW cleanup), default 22.
+# $2 = "force" to purge even if the panel has inbounds of its own.
+# Refuses on a relay (its panel is the real one) and, without force, on an exit
+# panel that has inbounds — someone uses it for something, don't destroy it silently.
 purge_3xui_panel() {
-    local ssh_port="${1:-22}"
-    local panel_port="" ports=() added p backup ts f2b_changed=false f svc line unit_path
+    local ssh_port="${1:-22}" force="${2:-}"
+    local panel_port="" inbounds="" backup ts f2b_changed=false f svc unit_path
 
     if ! xui_panel_installed; then
         log_info "3X-UI panel not installed — nothing to purge"
+        return 0
+    fi
+    # Relay markers: our API token file, or the system xray disabled because 3X-UI
+    # runs the real one. Never purge there.
+    if [[ -f "${XUI_API_TOKEN_FILE:-/etc/vpn-cli/api-token}" ]] || ! systemctl is-enabled --quiet xray 2>/dev/null; then
+        log_error "This looks like a relay (3X-UI manages xray here) — refusing to remove the panel"
+        return 1
+    fi
+    if [[ -f "$XUI_DB" ]]; then
+        inbounds=$(sqlite3 "$XUI_DB" "SELECT COUNT(*) FROM inbounds;" 2>/dev/null) || inbounds=""
+    fi
+    if [[ "$inbounds" =~ ^[0-9]+$ ]] && (( inbounds > 0 )) && [[ "$force" != force ]]; then
+        log_warn "3X-UI panel on exit has ${inbounds} inbound(s) of its own — NOT removing it."
+        log_warn "  Remove anyway: ./setup.sh update-exit --purge-3xui (DB is backed up to /root first)"
         return 0
     fi
     log_info "Removing decorative 3X-UI panel from exit (issue #40)..."
@@ -184,7 +201,7 @@ purge_3xui_panel() {
         backup="/root/x-ui-exit-backup-${ts}.db"
         install -m 0600 /dev/null "$backup"
         if ! sqlite3 "$XUI_DB" ".backup '${backup}'" 2>/dev/null; then
-            cp "$XUI_DB" "$backup"
+            cp "$XUI_DB" "$backup" || log_warn "3X-UI DB backup failed — continuing (exit traffic does not depend on the panel)"
         fi
         chmod 0600 "$backup"
         log_ok "3X-UI DB backed up: $backup"
@@ -216,22 +233,8 @@ purge_3xui_panel() {
     fi
 
     # UFW: DB webPort + every rule labelled "3X-UI Panel" (the port may have been
-    # changed in the panel since setup).
-    [[ -n "$panel_port" ]] && ports+=("$panel_port")
-    if command -v ufw &> /dev/null; then
-        added=$(ufw show added 2>/dev/null) || true
-        while IFS= read -r line; do
-            if [[ "$line" =~ ^ufw\ allow\ ([0-9]+)/tcp\ comment\ \'3X-UI\ Panel\'$ ]]; then
-                ports+=("${BASH_REMATCH[1]}")
-            fi
-        done <<< "$added"
-    fi
-    for p in "${ports[@]}"; do
-        if [[ "$p" == "80" || "$p" == "443" || "$p" == "22" || "$p" == "$ssh_port" ]]; then
-            continue
-        fi
-        ufw_close_tcp_port "$p" "3X-UI Panel"
-    done
+    # changed in the panel since setup). Never 22/80/443/SSH.
+    close_xui_ufw_ports "$ssh_port" "$panel_port"
 
     log_ok "3X-UI panel removed (standalone xray untouched)"
 
@@ -251,19 +254,14 @@ purge_3xui_panel() {
 # they don't answer on the public IP even with UFW off. Direct DB write: MUST run
 # inside an `x-ui stop` ... `x-ui start` window. lib/xui-api.sh and sub-proxy
 # (SUB_UPSTREAM) already talk to 127.0.0.1.
+# $1 = "with-sub" to bind the subscription server too — only when Caddy proxies it
+# (a subscription domain is set). Without one the admin may serve subscriptions
+# straight from IP:subPort, and loopback would silently kill that.
 xui_bind_loopback() {
     xui_db_set "webListen" "127.0.0.1"
-    xui_db_set "subListen" "127.0.0.1"
-}
-
-# SelfSteal relay: drop UFW allow rules for the panel/subscription ports that older
-# versions (update-relay) opened. $@ = ports (empty values ignored).
-close_relay_panel_ports() {
-    local p
-    for p in "$@"; do
-        [[ -n "$p" ]] || continue
-        ufw_close_tcp_port "$p" "3X-UI panel/subscription — reachable via Caddy only"
-    done
+    if [[ "${1:-}" == "with-sub" ]]; then
+        xui_db_set "subListen" "127.0.0.1"
+    fi
 }
 
 # In SelfSteal mode Caddy owns all certs (its own + copied to Hysteria),
@@ -308,11 +306,13 @@ xui_db_backup() {
             # (integrity_check below checks structure, not completeness).
             rm -f "$dest"
             sqlite3 "$XUI_DB" "PRAGMA wal_checkpoint(TRUNCATE);" > /dev/null 2>&1 || true
-            (umask 077 && cp "$XUI_DB" "$dest")
+            # || true: x-ui must come back up even if cp fails (full disk is the
+            # likely reason both .backup runs failed); integrity_check below refuses.
+            (umask 077 && cp "$XUI_DB" "$dest") || true
         fi
         x-ui start
     fi
-    chmod 0600 "$dest"
+    chmod 0600 "$dest" 2>/dev/null || true
     # .backup copies the WAL flag in the header too; switch the copy to rollback-
     # journal mode so it is one self-contained file (no DEST-wal to lose on restore).
     # The panel re-applies its own journal mode when it opens a restored DB.

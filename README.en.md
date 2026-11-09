@@ -377,7 +377,7 @@ sudo ./scripts/setup.sh update-relay --upgrade
 
 > **Upgrading to v1.12.0:** the 3X-UI panel is pinned to v3.11.0, which closes the published advisories affecting v3.1.0. The panel is upgraded only with the `--upgrade` flag — run `update-exit --upgrade`, then `update-relay --upgrade`. Without the flag everything keeps working on the old panel and selfcheck shows a warning. On Ubuntu 22.10+ / 24.04 the update switches SSH from `ssh.socket` to `ssh.service` once (the current session stays up). **Back up** `/etc/x-ui/x-ui.db` **before upgrading.**
 
-> **Upgrading to v1.13.0:** the 3X-UI panel is removed from the exit — it managed nothing (traffic goes through a separate XRAY) and only kept an admin port open. `update-exit` removes it automatically: the database is saved to `/root/x-ui-exit-backup-<date>.db`, the UFW rule for the panel port is closed, XRAY/Caddy/Hysteria keep running. To keep the panel as is: `update-exit --keep-3xui` (it is no longer upgraded or checked by the scripts). On a SelfSteal relay `update-relay` binds the panel and the subscription server to 127.0.0.1 and closes their ports in UFW — open the panel only via its domain (`https://<panel-domain>/<path>/`). A relay without SelfSteal is unchanged.
+> **Upgrading to v1.13.0:** the 3X-UI panel is removed from the exit — it managed nothing (traffic goes through a separate XRAY) and only kept an admin port open. `update-exit` removes it automatically: the database is saved to `/root/x-ui-exit-backup-<date>.db`, the UFW rule for the panel port is closed, XRAY/Caddy/Hysteria keep running. If the exit panel has inbounds of its own it is not removed and the script warns (remove anyway: `update-exit --purge-3xui`). To keep the panel as is: `update-exit --keep-3xui` (it is no longer upgraded or checked by the scripts). The removal has no rollback: the panel can only be restored manually from the saved database. On a SelfSteal relay `update-relay` binds the panel and the subscription server to 127.0.0.1 and closes their ports in UFW (the subscription server only if subscriptions have a domain) — open the panel only via its domain (`https://<panel-domain>/<path>/`). A relay without SelfSteal is unchanged.
 
 ### Uninstalling
 
@@ -409,6 +409,7 @@ x-ui log
 | `--skip-ssh` | setup, update | Don't modify SSH configuration |
 | `--upgrade` | update | Update binaries (exit: XRAY, Caddy, Hysteria; relay: 3X-UI, Caddy) |
 | `--keep-3xui` | update-exit | Don't remove a leftover 3X-UI panel from the exit |
+| `--purge-3xui` | update-exit | Remove the exit panel even if it has inbounds of its own |
 | `--purge-certs` | uninstall | Remove SSL certificates and acme.sh |
 
 ## Security
