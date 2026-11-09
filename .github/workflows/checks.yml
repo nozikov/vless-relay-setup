@@ -33,6 +33,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/ruff-action@v3
         with:
+          version: "0.15.12"
           src: scripts/lib/sub-proxy.py scripts/lint tests/invariants
 
   lib-imports:
