@@ -167,6 +167,37 @@ prune_backups() {
     log_info "Removed ${n} old backup(s) ${prefix}* (kept ${keep})"
 }
 
+# acme.sh leftovers of 3X-UI's installer (exit ≤v1.12, old relays): a short-lived
+# LE cert for the server IP, used only by the panel, plus the daily acme.sh cron.
+# Call once the panel is gone. Drops IP-named certs (acme.sh dirs, /root/cert/ip);
+# the cron goes only if acme.sh manages no other cert — a domain cert (plain relay,
+# issue_domain_cert) keeps renewing. --purge-certs in uninstall removes everything.
+cleanup_acme_panel_leftovers() {
+    local acme_home="/root/.acme.sh" d name removed=0 left=0
+    [[ -f "$acme_home/acme.sh" ]] || return 0
+    for d in "$acme_home"/*/; do
+        [[ -d "$d" ]] || continue
+        name=$(basename "$d"); name="${name%_ecc}"
+        [[ -f "${d}${name}.conf" ]] || continue
+        if [[ "$name" =~ ^[0-9.]+$ || "$name" == *:* ]]; then
+            rm -rf "$d"
+            removed=$((removed + 1))
+        else
+            left=$((left + 1))
+        fi
+    done
+    rm -rf /root/cert/ip
+    (( removed > 0 )) && log_ok "Removed ${removed} acme.sh IP cert(s) of the 3X-UI panel"
+    if (( left == 0 )) && crontab -l 2>/dev/null | grep -q 'acme.sh --cron'; then
+        if "$acme_home/acme.sh" --uninstall-cronjob > /dev/null 2>&1; then
+            log_ok "Disabled acme.sh cron (no certificates left to renew)"
+        else
+            log_warn "acme.sh --uninstall-cronjob failed; remove the cron entry manually (crontab -e)"
+        fi
+    fi
+    return 0
+}
+
 generate_random_port() {
     local excluded_ports=("$@")
     local port

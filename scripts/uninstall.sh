@@ -80,15 +80,17 @@ uninstall_xray() {
 }
 
 uninstall_acme() {
-    if [[ -f ~/.acme.sh/acme.sh ]]; then
+    if [[ -f /root/.acme.sh/acme.sh ]]; then
         if [[ "$PURGE_CERTS" == true ]]; then
             log_info "Removing acme.sh and certificates..."
-            ~/.acme.sh/acme.sh --uninstall 2>/dev/null || true
-            rm -rf ~/.acme.sh 2>/dev/null || true
+            /root/.acme.sh/acme.sh --uninstall 2>/dev/null || true
+            rm -rf /root/.acme.sh 2>/dev/null || true
             rm -rf /root/cert/ 2>/dev/null || true
             log_ok "acme.sh and certificates removed"
         else
-            log_info "acme.sh and certs preserved (use --purge-certs to remove)"
+            # The panel is gone — its IP cert and, if nothing else is left, the cron too
+            cleanup_acme_panel_leftovers
+            log_info "acme.sh and domain certs preserved (use --purge-certs to remove)"
         fi
     else
         log_info "acme.sh not found, skipping"
