@@ -176,6 +176,9 @@ main() {
     # re-issues it if the row no longer matches (e.g. plaintext row on a v3.3.1+ panel
     # that hashes tokens — the post-`--upgrade` repair path).
     bootstrap_api_token
+    # Installer tokens: relays set up before this fix still carry "install", and an
+    # --upgrade that reset default credentials mints "cli-fallback".
+    revoke_installer_api_tokens
 
     # Patch inbound sniffing to add routeOnly (idempotent — jq sets the field)
     local current_sniffing patched_sniffing

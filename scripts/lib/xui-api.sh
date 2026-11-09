@@ -75,12 +75,10 @@ xui_sha256_hex() {
 # plaintext after the hashing seeder already ran fails the check and is re-issued,
 # so every update-relay run self-heals a broken token.
 #
-# Also revokes the admin tokens 3X-UI's install.sh mints for its own summary
-# ("install" on a fresh DB, "cli-fallback" on each re-run): their plaintext is
-# printed to stdout, i.e. into our tee'd /var/log/vpn-setup-*.log. Only these exact
-# names — tokens the operator created in the panel are left alone.
+# The installer's own admin tokens (install/cli-fallback) are revoked separately by
+# revoke_installer_api_tokens in lib/3xui.sh — that has to run on the exit too.
 bootstrap_api_token() {
-    local token db_token existing stray hashed=false
+    local token db_token existing hashed=false
     local where_extra="" extra_cols="" extra_vals=""
     xui_api_tokens_hashed && hashed=true
     if xui_api_tokens_has_column scope; then
@@ -88,13 +86,6 @@ bootstrap_api_token() {
     fi
     if xui_api_tokens_has_column expires_at; then
         where_extra+=" AND expires_at=0"; extra_cols+=", expires_at"; extra_vals+=", 0"
-    fi
-
-    stray=$(sqlite3 "$XUI_DB" \
-        "SELECT COUNT(*) FROM api_tokens WHERE name IN ('install','cli-fallback');" 2>/dev/null) || stray=0
-    if [[ "${stray:-0}" -gt 0 ]]; then
-        sqlite3 "$XUI_DB" "DELETE FROM api_tokens WHERE name IN ('install','cli-fallback');"
-        log_info "Revoked ${stray} installer-created API token(s) (install/cli-fallback)"
     fi
 
     if [[ -r "$XUI_API_TOKEN_FILE" ]]; then

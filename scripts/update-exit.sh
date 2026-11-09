@@ -189,6 +189,21 @@ main() {
         fi
     fi
 
+    # --- Step 4b: Revoke 3X-UI installer API tokens ---
+    # install.sh mints an admin token ("install"/"cli-fallback") and prints it into
+    # this log; the exit panel needs no token at all. Needs the x-ui stop/start window
+    # (direct DB write). Runs after --upgrade, and on plain updates only when such a
+    # token is actually there — no needless panel restart. The restart also brings the
+    # panel up under the unit + sandbox drop-in the installer just wrote.
+    if command -v x-ui &> /dev/null && [[ -f "$XUI_DB" ]] && \
+       { [[ "$upgrade" == true ]] || [[ "$(count_installer_api_tokens)" -gt 0 ]]; }; then
+        x-ui stop
+        revoke_installer_api_tokens
+        systemctl daemon-reload
+        systemctl restart x-ui
+    fi
+    rm -f "$XUI_INSTALL_RESULT"
+
     # --- Step 5: Update XRAY config ---
     log_info "=== Updating XRAY Config ==="
     local backup_path

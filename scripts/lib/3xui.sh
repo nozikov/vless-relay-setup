@@ -54,6 +54,48 @@ run_3xui_installer() {
         XUI_SERVER_IP="${XUI_SERVER_IP:-}" \
         bash <(curl -Ls "https://raw.githubusercontent.com/mhsanaei/3x-ui/${XUI_VERSION}/install.sh") \
         "${XUI_VERSION}" < /dev/null
+    # install.sh writes the panel credentials + its "install" API token in plaintext
+    # here (for cloud-init/MOTD). We never read it; the token is revoked separately.
+    rm -f "$XUI_INSTALL_RESULT"
+}
+
+# install.sh (v3.11) mints admin-scope API tokens for its own summary: "install" on a
+# panel with no tokens, "cli-fallback" (rotated) on a later `-getApiToken`, i.e. a
+# re-run that resets default credentials. Their plaintext goes to stdout — our tee'd
+# /var/log/vpn-setup-*.log — and to install-result.env. We never use them (the relay
+# has its own "vpn-cli" token, the exit panel needs none), so they are pure exposure.
+# Exact names from main.go (installTokenName / cliFallbackTokenName); tokens the
+# operator created in the panel are left alone.
+XUI_INSTALLER_TOKEN_NAMES="'install','cli-fallback'"
+XUI_INSTALL_RESULT="/etc/x-ui/install-result.env"
+
+# Prints how many installer tokens are in the DB (0 when there is no DB or no
+# api_tokens table). Read-only — safe while the panel runs.
+count_installer_api_tokens() {
+    local has_table n
+    [[ -f "$XUI_DB" ]] || { echo 0; return 0; }
+    has_table=$(sqlite3 "$XUI_DB" \
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='api_tokens';" 2>/dev/null) || has_table=0
+    if [[ "${has_table:-0}" -eq 0 ]]; then
+        echo 0
+        return 0
+    fi
+    n=$(sqlite3 "$XUI_DB" \
+        "SELECT COUNT(*) FROM api_tokens WHERE name IN (${XUI_INSTALLER_TOKEN_NAMES});" 2>/dev/null) || n=0
+    echo "${n:-0}"
+}
+
+# Delete the installer tokens + install-result.env. Direct DB write, so it MUST run
+# inside an `x-ui stop` ... `x-ui start` window (a running panel flushes its
+# in-memory state over the DB on shutdown). Idempotent; quiet no-op without the table.
+revoke_installer_api_tokens() {
+    local n
+    rm -f "$XUI_INSTALL_RESULT"
+    n=$(count_installer_api_tokens)
+    if [[ "$n" -gt 0 ]]; then
+        sqlite3 "$XUI_DB" "DELETE FROM api_tokens WHERE name IN (${XUI_INSTALLER_TOKEN_NAMES});"
+        log_info "Revoked ${n} installer-created API token(s) (install/cli-fallback)"
+    fi
 }
 
 install_3xui() {
@@ -136,6 +178,9 @@ configure_3xui() {
 
     # Set admin credentials
     "$XUI_BIN" setting -username "$admin_user" -password "$admin_pass"
+
+    # Same window: drop the admin token install.sh minted and printed (both roles)
+    revoke_installer_api_tokens
 
     # Start with new settings
     x-ui start
