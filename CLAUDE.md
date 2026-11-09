@@ -209,6 +209,16 @@ Lifecycle:
 
 Известные ограничения: WARP free пропускная способность ~100 Mbps, рандомный CF IP при рестарте warp-svc, зависимость от CF apt-репо при установке. WARP+ (платный, статический IP) не поддерживается — out of scope.
 
+### Private Exit IP: freedom finalRules (#59)
+
+xray-core 26.10+ (3X-UI v3.11 ships 26.10.x): a freedom outbound blocks private destinations by default when the connection came from a vless/vmess/trojan/ss/hysteria inbound (`geodata.GetPrivateIPMatcher`: RFC1918, 100.64/10, loopback, link-local, 198.18/15, doc ranges, multicast, 240/4). Relay's `proxy-exit` dials the exit via `dialerProxy: fragment` — a freedom outbound, the final hop — so a private/CGNAT `EXIT_IP` (relay and exit in one provider network) silently fails.
+
+`configure_3xui_relay_template` (both setup-relay and update-relay; update re-reads `exit_ip` from `proxy-exit` in the DB template) checks `is_private_ipv4` (`common.sh`, mirrors xray's IPv4 list) and, if private, adds `fragment.settings.finalRules = [{action:"allow", ip:["<EXIT_IP>"]}]` — only that IP; finalRules match before the default block, so all other private targets stay blocked — plus a WARN (Direct Exit / CDN asym / Hysteria links also carry the private IP and are unreachable for outside clients). Public exit IP → no `finalRules` (template unchanged). Notes:
+- The rule goes on `fragment`, never on `proxy-exit`: xray ignores `finalRules` on a freedom outbound that itself has `sockopt.dialerProxy`.
+- 3X-UI v3.11 seeder `FreedomFinalRulesPrivateEgressBlock` (one-shot) rewrites freedom outbounds whose finalRules are absent/empty/`[{action:allow}]`/legacy `[{allow, geoip:private}]` to `[block geoip:private, allow]`. Our rule has an `ip` key → not touched. On a public-IP relay it may rewrite `direct`/`fragment` to the explicit equivalent of the default — harmless.
+- Rendered runtime config is `/usr/local/x-ui/bin/config.json`; 3X-UI redirects xray logs to `/var/log/x-ui/{access,error}.log` (the template's `/var/log/xray/*` paths are overridden). The default block is not visible in the warning-level error log — symptom is relay access log `inbound-443 -> proxy-exit` with nothing arriving on exit.
+- Docker E2E (exit on a docker network IP) is exactly this case.
+
 ### Custom SSH Port
 
 `setup_security()` accepts `--ssh-port PORT` flag. `setup_ssh_hardening()` writes the sshd settings, `setup_fail2ban()` configures the port in jail config, and UFW opens the custom port. Update scripts (and the hardening rollback) detect the current port via `detect_ssh_port` (`security.sh`): first `port` of `sshd -T`, fallback to our drop-in, then `^Port` in `sshd_config`, then 22.
@@ -257,7 +267,11 @@ Every `apt-get update` in `scripts/` goes through `apt_update_retry` (common.sh)
 
 Read-only команды (`list`, `link`) не делают `x-ui stop` — конкурентность с админом в веб-панели не страшна (мы только читаем).
 
-`get_subscription_prefix()` читает `subURI` из `settings` table (выставлен в SelfSteal+CDN режиме); fallback — конструирует `https://${subDomain or ifconfig.me}:${subPort}${subPath}` для plain-режима.
+`get_subscription_prefix()` читает `subURI` из `settings` table (выставлен в SelfSteal+CDN режиме); fallback — конструирует `https://${subDomain}:${subPort}${subPath}` для plain-режима с доменом. Без домена (setup-relay подписку не включает) — молча `return 1`, без ifconfig.me. Вызывающие печатают `print_no_subscription_hint` в stderr: `vpn link` → exit 1, `vpn add` → клиент создан, warn, exit 0 (#59).
+
+stdout-контракт: всё, что забирается в `$(...)` (`get_subscription_prefix`, `xui_api_request` и обёртки `xui_api_*` в `lib/xui-api.sh`), логирует только в stderr — `log_*` пишут в stdout, иначе ошибка попадает в захваченное значение (и в `jq`). Setup/update делают `main 2>&1 | tee`, так что в лог stderr всё равно попадает.
+
+`vpn list` выравнивает таблицу `printf '%-*s'` по посчитанным ширинам — без `column` (пакет `bsdextrautils`, нет на минимальном Ubuntu 24.04, #59).
 
 На exit-сервере (нет `/etc/x-ui/x-ui.db`) — error «for relay only» и exit 1. Симлинк там не ставится.
 
