@@ -133,7 +133,8 @@ url_quote() {
 
 # Reality public key from the base64url private key, without `xray x25519 -i KEY`
 # (argv). Wraps the raw 32-byte X25519 key in a PKCS#8 DER header for openssl.
-# Falls back to xray if openssl can't do it. Prints nothing on failure.
+# Prints nothing on failure (empty/garbled key, openssl < 1.1.0) — no fallback
+# to xray: that puts the key on argv, and `xray x25519 -i ""` makes a NEW pair.
 reality_public_key_from_private() {
     local b64="${1//-/+}" pub=""
     b64="${b64//_//}"
@@ -142,9 +143,7 @@ reality_public_key_from_private() {
             printf '%s' "$b64" | openssl base64 -d -A; } 2>/dev/null \
         | openssl pkey -inform DER -pubout -outform DER 2>/dev/null \
         | tail -c 32 | openssl base64 -A | tr '+/' '-_' | tr -d '=') || pub=""
-    if [[ ${#pub} -ne 43 ]]; then
-        pub=$(xray x25519 -i "$1" 2>/dev/null | grep -iE "public|password" | awk '{print $NF}') || pub=""
-    fi
+    [[ ${#pub} -eq 43 ]] || pub=""
     printf '%s' "$pub"
 }
 
@@ -188,7 +187,9 @@ cleanup_acme_panel_leftovers() {
     done
     rm -rf /root/cert/ip
     (( removed > 0 )) && log_ok "Removed ${removed} acme.sh IP cert(s) of the 3X-UI panel"
-    if (( left == 0 )) && crontab -l 2>/dev/null | grep -q 'acme.sh --cron'; then
+    local cron=""
+    cron=$(crontab -l 2>/dev/null) || cron=""
+    if (( left == 0 )) && [[ "$cron" == *"acme.sh --cron"* ]]; then
         if "$acme_home/acme.sh" --uninstall-cronjob > /dev/null 2>&1; then
             log_ok "Disabled acme.sh cron (no certificates left to renew)"
         else
